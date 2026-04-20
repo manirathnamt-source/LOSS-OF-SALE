@@ -16,60 +16,68 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .pill{font-size:11px;padding:2px 10px;border-radius:20px;font-weight:500;}
 .pill-ok{background:#e6f5ee;color:#1a6e40;}.pill-err{background:#fdeaea;color:#a32020;}.pill-wait{background:#e6eefa;color:#2a4fb0;}
 .container{max-width:1320px;margin:0 auto;padding:1.5rem 2rem 3rem;}
-.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:4px;margin-bottom:1.5rem;width:fit-content;}
-.tab-btn{padding:7px 20px;font-size:13px;font-weight:500;color:var(--muted);background:none;border:none;border-radius:9px;cursor:pointer;transition:all .15s;}
-.tab-btn.active{background:var(--blue);color:#fff;}
-.tab-btn:hover:not(.active){background:var(--bg);color:var(--text);}
-.pane{display:none;}.pane.active{display:block;}
-.filter-bar{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;margin-bottom:1.25rem;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow-x:auto;}
+/* FILTER BAR */
+.filter-bar{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;margin-bottom:1rem;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow-x:auto;}
 .filter-bar label{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap;flex-shrink:0;}
 .filter-bar select{font-size:11px;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;min-width:100px;max-width:140px;flex-shrink:1;}
 .filter-bar select:focus{outline:none;border-color:var(--blue);}
 .filter-btn{font-size:11px;padding:4px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-weight:500;white-space:nowrap;flex-shrink:0;}
 .filter-btn:hover{background:var(--blue);color:#fff;border-color:var(--blue);}
+/* TOGGLE */
+.switch{position:relative;width:38px;height:20px;flex-shrink:0;display:inline-block;}
+.switch input{opacity:0;width:0;height:0;}
+.slider{position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:20px;transition:.25s;}
+.slider:before{position:absolute;content:'';height:14px;width:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.25s;}
+input:checked+.slider{background:var(--blue);}
+input:checked+.slider:before{transform:translateX(18px);}
+.sync-badge{font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600;white-space:nowrap;}
+.sync-on{background:#e6eefa;color:#1a3fa0;}.sync-off{background:#f0f0f0;color:var(--muted);}
+/* TABS */
+.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:4px;margin-bottom:1.5rem;width:fit-content;}
+.tab-btn{padding:7px 18px;font-size:13px;font-weight:500;color:var(--muted);background:none;border:none;border-radius:9px;cursor:pointer;transition:all .15s;}
+.tab-btn.active{background:var(--blue);color:#fff;}
+.tab-btn:hover:not(.active){background:var(--bg);color:var(--text);}
+.pane{display:none;}.pane.active{display:block;}
+/* METRICS */
 .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:1.5rem;}
 .metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem 1.25rem;}
 .metric .lbl{font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
 .metric .val{font-size:26px;font-weight:600;line-height:1;}
 .metric .sub{font-size:11px;color:var(--hint);margin-top:5px;}
 .metric.blue .val{color:var(--blue);}.metric.green .val{color:var(--green);}.metric.amber .val{color:var(--amber);}.metric.red .val{color:var(--red);}
+/* CARD */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1rem;}
 .card-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;text-transform:uppercase;letter-spacing:.4px;}
+/* INSIGHTS */
 .insights{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:1rem;}
 .insight{border-radius:var(--radius);padding:1rem 1.2rem;border-left:4px solid;}
-.insight.red{background:#fff5f5;border-color:var(--red);}
-.insight.amber{background:#fffbf0;border-color:var(--amber);}
-.insight.green{background:#f0faf5;border-color:var(--green);}
+.insight.red{background:#fff5f5;border-color:var(--red);}.insight.amber{background:#fffbf0;border-color:var(--amber);}.insight.green{background:#f0faf5;border-color:var(--green);}
 .insight .i-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;}
 .insight.red .i-label{color:var(--red);}.insight.amber .i-label{color:var(--amber);}.insight.green .i-label{color:var(--green);}
 .insight .i-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px;}
 .insight .i-body{font-size:12px;color:var(--muted);line-height:1.5;}
 .insight .i-val{font-size:22px;font-weight:600;margin-bottom:3px;}
 .insight.red .i-val{color:var(--red);}.insight.amber .i-val{color:var(--amber);}.insight.green .i-val{color:var(--green);}
-/* SORTABLE TABLE */
+/* TABLE */
 .tw{overflow-x:auto;}
 table{width:100%;border-collapse:collapse;font-size:12px;}
 thead tr{border-bottom:2px solid var(--border);}
-th{text-align:left;padding:7px 10px;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;cursor:pointer;user-select:none;position:relative;}
+th{text-align:left;padding:7px 10px;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;cursor:pointer;user-select:none;}
 th:hover{color:var(--blue);}
 th.sort-asc::after{content:' ▲';font-size:9px;color:var(--blue);}
 th.sort-desc::after{content:' ▼';font-size:9px;color:var(--blue);}
 td{padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:12px;}
-tr:last-child td{border-bottom:none;}
-tr:hover td{background:var(--bg);}
+tr:last-child td{border-bottom:none;}tr:hover td{background:var(--bg);}
 tfoot td{border-top:2px solid var(--border);font-weight:600;background:var(--bg);}
-/* AUDIT ROW HIGHLIGHTS */
-tr.audit-red td{background:#fff5f5;}
-tr.audit-amber td{background:#fffbf0;}
-tr.audit-red:hover td{background:#ffe8e8;}
-tr.audit-amber:hover td{background:#fff3d6;}
+tr.audit-red td{background:#fff5f5;}tr.audit-amber td{background:#fffbf0;}
+tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#fff3d6;}
 /* BADGES */
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
 .badge-hi{background:#e6f5ee;color:#1a6e40;}.badge-mid{background:#fff8e6;color:#7a4e00;}.badge-lo{background:#fdeaea;color:#a32020;}
-.badge-red{background:#fdeaea;color:#a32020;}.badge-amber{background:#fff8e6;color:#7a4e00;}.badge-green{background:#e6f5ee;color:#1a6e40;}.badge-blue{background:#e6eefa;color:#1a3fa0;}
+.badge-red{background:#fdeaea;color:#a32020;}.badge-amber{background:#fff8e6;color:#7a4e00;}.badge-green{background:#e6f5ee;color:#1a6e40;}
 .clickable{cursor:pointer;color:var(--blue);font-weight:600;text-decoration:underline;text-underline-offset:2px;}
 .clickable:hover{color:#6b52d4;}
-/* AUDIT LEGEND */
+/* AUDIT */
 .audit-legend{display:flex;gap:16px;margin-bottom:1rem;font-size:11px;}
 .audit-legend span{display:flex;align-items:center;gap:5px;}
 .leg-red{width:12px;height:12px;border-radius:3px;background:#fff5f5;border:2px solid var(--red);}
@@ -79,22 +87,10 @@ tr.audit-amber:hover td{background:#fff3d6;}
 .modal-overlay.open{display:flex;}
 .modal{background:var(--surface);border-radius:var(--radius);padding:1.5rem;width:94%;max-width:980px;max-height:90vh;overflow-y:auto;}
 .modal-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1rem;padding-bottom:.75rem;border-bottom:1px solid var(--border);}
-.modal-title{font-size:15px;font-weight:600;}
-.modal-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.modal-title{font-size:15px;font-weight:600;}.modal-sub{font-size:12px;color:var(--muted);margin-top:2px;}
 .modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);margin-left:12px;}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:1rem;}
 .section-lbl{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
-.toggle-wrap{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:1rem;font-size:12px;flex-wrap:wrap;}
-.toggle-desc{color:var(--muted);font-size:11px;margin-left:4px;}
-.switch{position:relative;width:40px;height:22px;flex-shrink:0;display:inline-block;}
-.switch input{opacity:0;width:0;height:0;}
-.slider{position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:22px;transition:.3s;}
-.slider:before{position:absolute;content:'';height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s;}
-input:checked+.slider{background:var(--blue);}
-input:checked+.slider:before{transform:translateX(18px);}
-.sync-info{font-size:11px;padding:2px 10px;border-radius:20px;font-weight:600;}
-.sync-on{background:#e6eefa;color:#1a3fa0;}
-.sync-off{background:#f5f4f0;color:var(--muted);}
 .loading{padding:3rem;text-align:center;color:var(--muted);font-size:14px;}
 .err-card{padding:1.5rem;background:#fdeaea;border-radius:var(--radius);color:#a32020;font-size:13px;margin-bottom:1rem;}
 @media(max-width:700px){.insights{grid-template-columns:1fr;}.metrics{grid-template-columns:1fr 1fr;}.two-col{grid-template-columns:1fr;}}
@@ -107,9 +103,8 @@ input:checked+.slider:before{transform:translateX(18px);}
   <div class="topbar-meta" id="topbar-meta">Loading...</div>
 </div>
 <div class="container">
-  <!-- PERMANENT FILTER BAR + TOGGLE — applies to all tabs -->
+  <!-- GLOBAL FILTER BAR — always visible -->
   <div id="global-filter-bar"></div>
-
   <div class="tabs">
     <button class="tab-btn active" onclick="show('ov')">Overview</button>
     <button class="tab-btn" onclick="show('ls')">Loss of Sale</button>
@@ -143,6 +138,7 @@ function bc(p){return p>=40?'badge-hi':p>=25?'badge-mid':'badge-lo';}
 function dayKey(d){return`2026-04-${String(d).padStart(2,'0')}`;}
 function fmtDK(dk){try{const d=new Date(dk+'T00:00:00');return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});}catch{return dk;}}
 
+// ── TAB SWITCHING ─────────────────────────────────────────
 function show(id){
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','audit'][i]===id));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
@@ -166,25 +162,23 @@ function addPill(text,cls){
   document.getElementById('pills').appendChild(p);return p;
 }
 
-// ── SORTABLE TABLE HELPER ─────────────────────────────────
-let _sortState={};
+// ── SORTABLE TABLE ────────────────────────────────────────
+let _sortState={},_tblCounter=0;
 function makeSortable(tableId){
-  const tbl=document.getElementById(tableId);
-  if(!tbl)return;
+  const tbl=document.getElementById(tableId);if(!tbl)return;
   const ths=tbl.querySelectorAll('thead th');
   ths.forEach((th,ci)=>{
-    th.style.cursor='pointer';
     th.addEventListener('click',()=>{
       const prev=_sortState[tableId]||{};
       const asc=prev.col===ci?!prev.asc:true;
       _sortState[tableId]={col:ci,asc};
-      ths.forEach(h=>{h.classList.remove('sort-asc','sort-desc');});
+      ths.forEach(h=>h.classList.remove('sort-asc','sort-desc'));
       th.classList.add(asc?'sort-asc':'sort-desc');
       const tbody=tbl.querySelector('tbody');
       const rows=[...tbody.querySelectorAll('tr')];
       rows.sort((a,b)=>{
-        const av=a.cells[ci]?.textContent.replace(/[₹,% ▲▼]/g,'').trim()||'';
-        const bv=b.cells[ci]?.textContent.replace(/[₹,% ▲▼]/g,'').trim()||'';
+        const av=(a.cells[ci]?.textContent||'').replace(/[₹,% ▲▼]/g,'').trim();
+        const bv=(b.cells[ci]?.textContent||'').replace(/[₹,% ▲▼]/g,'').trim();
         const an=parseFloat(av),bn=parseFloat(bv);
         if(!isNaN(an)&&!isNaN(bn))return asc?an-bn:bn-an;
         return asc?av.localeCompare(bv):bv.localeCompare(av);
@@ -193,11 +187,21 @@ function makeSortable(tableId){
     });
   });
 }
+function sortableTbl(headers,rows,footerRow,rowClass){
+  const id='tbl-'+(++_tblCounter);
+  const html=`<div class="tw"><table id="${id}">
+    <thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>`<tr${rowClass&&rowClass(r)?` class="${rowClass(r)}"`:''}>
+      ${r.cells.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody>
+    ${footerRow?`<tfoot><tr>${footerRow.map(c=>`<td>${c}</td>`).join('')}</tr></tfoot>`:''}
+  </table></div>`;
+  setTimeout(()=>makeSortable(id),50);
+  return html;
+}
 
-// ── DATE PARSER ───────────────────────────────────────────
+// ── DATE / TIME / MOBILE ──────────────────────────────────
 function toAprilDay(raw){
-  if(!raw)return null;
-  const s=String(raw).trim();
+  if(!raw)return null;const s=String(raw).trim();
   let m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if(m)return(parseInt(m[1])===2026&&parseInt(m[2])===4)?parseInt(m[3]):null;
   m=s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
@@ -208,7 +212,7 @@ function toAprilDay(raw){
 }
 function toTimeBucket(raw){
   if(!raw)return null;const s=String(raw).trim();
-  let m=s.match(/^(\d{1,2})-(\d{1,2})\s*(AM|PM)$/i);
+  const m=s.match(/^(\d{1,2})-(\d{1,2})\s*(AM|PM)$/i);
   if(m){let h=parseInt(m[1]);const ap=m[3].toUpperCase();if(ap==='PM'&&h!==12)h+=12;if(ap==='AM'&&h===12)h=0;return`${String(h).padStart(2,'0')}:00-${String(h+1).padStart(2,'0')}:00`;}
   if(s&&s!=='-')return s;return null;
 }
@@ -223,6 +227,25 @@ function normStore(s){return String(s||'').replace(/\s*\([^)]*\)\s*$/,'').trim()
 
 // ── GLOBAL STATE ──────────────────────────────────────────
 let _WK=null,_LS_ROWS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={};
+let _lsSyncOn=false; // toggle: false = Loss tab shows ALL data
+
+// ── FILTER STATE — stored in object, not just DOM ─────────
+let _F={date:'',cluster:'',rm:'',market:'',store:'',reason:''};
+
+function getFilters(){return{..._F};}
+
+function setFilter(key,val){
+  _F[key]=val;
+  renderAll();
+}
+function resetFilters(){
+  _F={date:'',cluster:'',rm:'',market:'',store:'',reason:''};
+  // Reset DOM selects
+  ['f-date','f-cluster','f-rm','f-market','f-store','f-reason'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  renderAll();
+}
 
 // ── PARSE WALKINS ─────────────────────────────────────────
 function parseWalkins(headers,rows){
@@ -247,7 +270,7 @@ function parseWalkins(headers,rows){
   const rms=[...new Set(stores.map(s=>s.rm).filter(Boolean))].sort();
   const clusters=[...new Set(stores.map(s=>s.cluster).filter(Boolean))].sort();
   const markets=[...new Set(stores.map(s=>s.market).filter(Boolean))].sort();
-  const dks=[...new Set(days.map(d=>d.dk))];
+  const dks=days.map(d=>d.dk);
   stores.forEach(s=>{_STORE_RM[s.outletNorm]=s.rm;});
   return{stores,days,rms,clusters,markets,dks};
 }
@@ -266,58 +289,33 @@ function parseLoss(headers,rows){
     phoneIdx:  ep('phone number',['phone number','phone','mobile','contact']),
     timingIdx: ep('timing',['timing','time']),
     empIdx:    ep('employee',['employee name','employee','emp','staff','executive','se','salesperson']),
-    mktIdx:    ep('market',['market']),
     subCatIdx: ep('product sub category',['product sub category','sub category','subcategory']),
-    sizeIdx:   ep('size',['size']),
-    styleIdx:  ep('style',['style']),
-    colorIdx:  ep('color',['color','colour']),
-    polishIdx: ep('polish',['polish']),
+    sizeIdx:   ep('size',['size']),styleIdx:ep('style',['style']),
+    colorIdx:  ep('color',['color','colour']),polishIdx:ep('polish',['polish']),
     designIdx: ep('design number',['design number','design no','design']),
     notesIdx:  ep('notes',['notes','note','remarks']),
   };
   const{dateIdx,storeIdx,phoneIdx,timingIdx}=_LS_IDX;
-
-  // Get the latest day number in walkins — loss of sale must not go beyond this
-  // This works regardless of whether walkins days are empty or not
-  const wkDayNums=_WK.days.map(d=>d.dayNum).filter(Boolean);
-  const maxWkDay=wkDayNums.length?Math.max(...wkDayNums):31; // 31 = no restriction if walkins has no days
+  const wkDayNums=_WK.days.map(d=>d.dayNum);
+  const maxWkDay=wkDayNums.length?Math.max(...wkDayNums):31;
   const minWkDay=wkDayNums.length?Math.min(...wkDayNums):1;
-  const validDKs=new Set(_WK.days.map(d=>d.dk)); // exact day keys from walkins
-
   _LS_ROWS=rows.map(r=>{
     const dayNum=toAprilDay(r[dateIdx]);
-    // Only include if day number is within walkins range
-    const withinRange=dayNum&&dayNum>=minWkDay&&dayNum<=maxWkDay;
-    const dk=withinRange?dayKey(dayNum):null;
+    const withinWk=dayNum&&dayNum>=minWkDay&&dayNum<=maxWkDay;
+    const dk=dayNum?dayKey(dayNum):null; // always set dk if date parsed
+    const syncedDk=withinWk?dk:null;    // syncedDk is null if beyond walkins
     const storeNorm=normStore(String(r[storeIdx]||''));
-    const wkStore=_WK?_WK.stores.find(s=>s.outletNorm===storeNorm):null;
+    const wkStore=_WK.stores.find(s=>s.outletNorm===storeNorm);
     const rm=_STORE_RM[storeNorm]||(wkStore?wkStore.rm:'Unknown');
-    const productParts=[_LS_IDX.subCatIdx,_LS_IDX.sizeIdx,_LS_IDX.styleIdx,_LS_IDX.colorIdx,_LS_IDX.polishIdx,_LS_IDX.designIdx,_LS_IDX.notesIdx]
-      .filter(i=>i>=0).map(i=>String(r[i]||'').trim()).filter(Boolean);
-    const productKey=productParts.join(' | ')||'Unknown';
-    return{...r,_dk:dk,_rm:rm,_mob:mobStatus(phoneIdx>=0?r[phoneIdx]:''),_time:toTimeBucket(timingIdx>=0?r[timingIdx]:''),_product:productKey,_wkStore:wkStore};
+    const productParts=[_LS_IDX.subCatIdx,_LS_IDX.sizeIdx,_LS_IDX.styleIdx,_LS_IDX.colorIdx,_LS_IDX.polishIdx,_LS_IDX.designIdx,_LS_IDX.notesIdx].filter(i=>i>=0).map(i=>String(r[i]||'').trim()).filter(Boolean);
+    return{...r,_dk:dk,_syncedDk:syncedDk,_rm:rm,_mob:mobStatus(phoneIdx>=0?r[phoneIdx]:''),_time:toTimeBucket(timingIdx>=0?r[timingIdx]:''),_product:productParts.join(' | ')||'Unknown',_wkStore:wkStore};
   });
-
-  // Day map — only dates present in walkins
+  // Day map uses synced dates only
   _LS_DAY_MAP={};
-  _LS_ROWS.forEach(r=>{
-    if(!r._dk)return;
-    if(!_LS_DAY_MAP[r._dk])_LS_DAY_MAP[r._dk]=0;
-    _LS_DAY_MAP[r._dk]++;
-  });
+  _LS_ROWS.forEach(r=>{if(r._syncedDk){if(!_LS_DAY_MAP[r._syncedDk])_LS_DAY_MAP[r._syncedDk]=0;_LS_DAY_MAP[r._syncedDk]++;}});
 }
 
-// ── FILTERS ───────────────────────────────────────────────
-function getFilters(){
-  return{
-    date:   (document.getElementById('f-date')||{}).value||'',
-    rm:     (document.getElementById('f-rm')||{}).value||'',
-    cluster:(document.getElementById('f-cluster')||{}).value||'',
-    market: (document.getElementById('f-market')||{}).value||'',
-    store:  (document.getElementById('f-store')||{}).value||'',
-    reason: (document.getElementById('f-reason')||{}).value||''
-  };
-}
+// ── FILTER FUNCTIONS ──────────────────────────────────────
 function filterStores(stores,f){
   return stores.filter(s=>
     (!f.date||s.days.some(d=>d.dk===f.date))&&
@@ -325,13 +323,15 @@ function filterStores(stores,f){
     (!f.market||s.market===f.market)&&(!f.store||s.outlet===f.store)
   );
 }
+
+// filterLS: for Overview/Audit/LossDetail — always uses synced dates
 function filterLS(f){
   const{storeIdx,reasonIdx}=_LS_IDX;
   return _LS_ROWS.filter(r=>{
-    if(!r._dk)return false;
+    if(!r._syncedDk)return false; // exclude beyond walkins cutoff
     const wkStore=r._wkStore;
     const storeRM=wkStore?wkStore.rm:r._rm;
-    if(f.date&&r._dk!==f.date)return false;
+    if(f.date&&r._syncedDk!==f.date)return false;
     if(f.rm&&storeRM!==f.rm)return false;
     if(f.cluster&&(!wkStore||wkStore.cluster!==f.cluster))return false;
     if(f.market&&(!wkStore||wkStore.market!==f.market))return false;
@@ -340,97 +340,92 @@ function filterLS(f){
     return true;
   });
 }
-function renderGlobalFilterBar(){
-  if(!_WK||!_LS_IDX.reasonIdx===undefined)return;
+
+// filterLSTab: for Loss of Sale tab — respects toggle
+function filterLSTab(f){
+  const{storeIdx,reasonIdx}=_LS_IDX;
+  return _LS_ROWS.filter(r=>{
+    // When sync ON: exclude beyond walkins. When OFF: include all
+    if(_lsSyncOn&&!r._syncedDk)return false;
+    const dk=_lsSyncOn?r._syncedDk:r._dk;
+    const wkStore=r._wkStore;
+    const storeRM=wkStore?wkStore.rm:r._rm;
+    if(f.date&&dk!==f.date)return false;
+    if(f.rm&&storeRM!==f.rm)return false;
+    if(f.cluster&&(!wkStore||wkStore.cluster!==f.cluster))return false;
+    if(f.market&&(!wkStore||wkStore.market!==f.market))return false;
+    if(f.store&&storeIdx>=0&&String(r[storeIdx]||'')!==f.store)return false;
+    if(f.reason&&reasonIdx>=0&&String(r[reasonIdx]||'')!==f.reason)return false;
+    return true;
+  });
+}
+
+// ── GLOBAL FILTER BAR ────────────────────────────────────
+function buildFilterBar(){
+  if(!_WK||!_LS_IDX||_LS_IDX.dateIdx===undefined)return;
   const{dks,rms,clusters,markets,stores}=_WK;
   const{reasonIdx}=_LS_IDX;
   const storeNames=[...new Set(stores.map(s=>s.outlet).filter(Boolean))].sort();
   const reasons=reasonIdx>=0?[...new Set(_LS_ROWS.map(r=>String(r[reasonIdx]||'')).filter(Boolean))].sort():[];
-  const cv={
-    date:(document.getElementById('f-date')||{}).value||'',
-    cluster:(document.getElementById('f-cluster')||{}).value||'',
-    rm:(document.getElementById('f-rm')||{}).value||'',
-    market:(document.getElementById('f-market')||{}).value||'',
-    store:(document.getElementById('f-store')||{}).value||'',
-    reason:(document.getElementById('f-reason')||{}).value||''
-  };
   const lastWkDay=_WK.days.length?_WK.days[_WK.days.length-1]:null;
-  const firstWkDay=_WK.days.length?_WK.days[0]:null;
   const totalLSSynced=Object.values(_LS_DAY_MAP).reduce((s,v)=>s+v,0);
+  const totalLSAll=_LS_ROWS.length;
 
   document.getElementById('global-filter-bar').innerHTML=`
     <div class="filter-bar">
       <label>Date:</label>
-      <select id="f-date" onchange="renderAll()">
+      <select id="f-date" onchange="_F.date=this.value;renderAll()">
         <option value="">All days</option>
-        ${dks.map(dk=>`<option value="${dk}"${cv.date===dk?' selected':''}>${fmtDK(dk)}</option>`).join('')}
+        ${dks.map(dk=>`<option value="${dk}"${_F.date===dk?' selected':''}>${fmtDK(dk)}</option>`).join('')}
       </select>
       <label>Cluster:</label>
-      <select id="f-cluster" onchange="renderAll()">
+      <select id="f-cluster" onchange="_F.cluster=this.value;renderAll()">
         <option value="">All clusters</option>
-        ${clusters.map(c=>`<option${cv.cluster===c?' selected':''}>${c}</option>`).join('')}
+        ${clusters.map(c=>`<option${_F.cluster===c?' selected':''}>${c}</option>`).join('')}
       </select>
       <label>RM:</label>
-      <select id="f-rm" onchange="renderAll()">
+      <select id="f-rm" onchange="_F.rm=this.value;renderAll()">
         <option value="">All RMs</option>
-        ${rms.map(r=>`<option${cv.rm===r?' selected':''}>${r}</option>`).join('')}
+        ${rms.map(r=>`<option${_F.rm===r?' selected':''}>${r}</option>`).join('')}
       </select>
       <label>Market:</label>
-      <select id="f-market" onchange="renderAll()">
+      <select id="f-market" onchange="_F.market=this.value;renderAll()">
         <option value="">All markets</option>
-        ${markets.map(m=>`<option${cv.market===m?' selected':''}>${m}</option>`).join('')}
+        ${markets.map(m=>`<option${_F.market===m?' selected':''}>${m}</option>`).join('')}
       </select>
       <label>Store:</label>
-      <select id="f-store" onchange="renderAll()">
+      <select id="f-store" onchange="_F.store=this.value;renderAll()">
         <option value="">All stores</option>
-        ${storeNames.map(s=>`<option${cv.store===s?' selected':''}>${s}</option>`).join('')}
+        ${storeNames.map(s=>`<option${_F.store===s?' selected':''}>${s}</option>`).join('')}
       </select>
       <label>Reason:</label>
-      <select id="f-reason" onchange="renderAll()">
+      <select id="f-reason" onchange="_F.reason=this.value;renderAll()">
         <option value="">All reasons</option>
-        ${reasons.map(r=>`<option${cv.reason===r?' selected':''}>${r}</option>`).join('')}
+        ${reasons.map(r=>`<option${_F.reason===r?' selected':''}>${r}</option>`).join('')}
       </select>
       <div style="width:1px;height:20px;background:var(--border);flex-shrink:0;"></div>
-      <label style="white-space:nowrap;">Sync walkins:</label>
-      <label class="switch" style="flex-shrink:0;">
-        <input type="checkbox" id="ls-sync-toggle" ${_lsSyncOn?'checked':''} onchange="toggleLSSync()">
+      <label>LS Sync:</label>
+      <label class="switch">
+        <input type="checkbox" id="ls-sync-toggle" ${_lsSyncOn?'checked':''} onchange="_lsSyncOn=this.checked;buildFilterBar();renderLoss();">
         <span class="slider"></span>
       </label>
-      <span class="sync-info ${_lsSyncOn?'sync-on':'sync-off'}" id="sync-badge">
-        ${_lsSyncOn?`✅ Synced till ${lastWkDay?fmtDK(lastWkDay.dk):'—'}`:'🔓 All data'}
+      <span class="sync-badge ${_lsSyncOn?'sync-on':'sync-off'}">
+        ${_lsSyncOn?`✅ Synced till ${lastWkDay?fmtDK(lastWkDay.dk):'—'} · ${fi(totalLSSynced)}`:`🔓 All data · ${fi(totalLSAll)}`}
       </span>
       <button class="filter-btn" onclick="resetFilters()">Reset</button>
     </div>
     <div style="display:flex;align-items:center;gap:16px;padding:8px 14px;background:#e6eefa;border-radius:10px;margin-bottom:1rem;font-size:11px;color:#1a3fa0;flex-wrap:wrap;">
-      <span>📅 <strong>Walkins:</strong> ${firstWkDay?fmtDK(firstWkDay.dk):'—'} → <strong>${lastWkDay?fmtDK(lastWkDay.dk):'—'}</strong> (${_WK.days.length} days)</span>
-      <span style="color:#aac;">|</span>
-      <span>🔗 <strong>Loss of sale synced till ${lastWkDay?fmtDK(lastWkDay.dk):'—'}</strong> · ${totalLSSynced} entries synced · ${_LS_ROWS.length-totalLSSynced} entries beyond cutoff</span>
+      <span>📅 <strong>Walkins:</strong> ${_WK.days.length?fmtDK(_WK.days[0].dk):'—'} → <strong>${lastWkDay?fmtDK(lastWkDay.dk):'—'}</strong> (${_WK.days.length} days)</span>
+      <span style="opacity:.4;">|</span>
+      <span>🔗 <strong>Loss data in sheet: ${fi(totalLSAll)}</strong> · Synced to walkins: <strong>${fi(totalLSSynced)}</strong>${totalLSAll>totalLSSynced?` · <span style="color:#c47a0f;">${fi(totalLSAll-totalLSSynced)} beyond walkins excluded from Overview/Audit</span>`:''}</span>
     </div>`;
 }
 
-// filterBarHTML now returns empty string — filter bar is global
-function filterBarHTML(){return'';}
-
-function resetFilters(){
-  ['f-date','f-rm','f-cluster','f-market','f-store','f-reason'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-  renderAll();
-}
-  renderAll();
-}
-
-// ── SORTABLE TABLE BUILDER ────────────────────────────────
-let _tblCounter=0;
-function sortableTbl(headers,rows,footerRow,rowClass){
-  const id='tbl-'+(++_tblCounter);
-  const html=`<div class="tw"><table id="${id}">
-    <thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(r=>`<tr${rowClass?` class="${rowClass(r)}"`:''}>
-      ${r.cells.map(c=>`<td>${c}</td>`).join('')}
-    </tr>`).join('')}</tbody>
-    ${footerRow?`<tfoot><tr>${footerRow.map(c=>`<td>${c}</td>`).join('')}</tr></tfoot>`:''}
-  </table></div>`;
-  setTimeout(()=>makeSortable(id),50);
-  return html;
+function renderAll(){
+  renderOverview();
+  renderLoss();
+  if(document.getElementById('lsd').classList.contains('active'))renderLossDetail();
+  if(document.getElementById('audit').classList.contains('active'))renderAudit();
 }
 
 // ── OVERVIEW ──────────────────────────────────────────────
@@ -440,14 +435,13 @@ function renderOverview(){
   const filtLS=filterLS(f);
   const{storeIdx}=_LS_IDX;
 
-  const totalW=filtStores.reduce((s,r)=>s+( f.date?r.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.w,0):r.totalW),0);
+  const totalW=filtStores.reduce((s,r)=>s+(f.date?r.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.w,0):r.totalW),0);
   const totalB=filtStores.reduce((s,r)=>s+(f.date?r.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.b,0):r.totalB),0);
   const totalNB=totalW-totalB;
   const totalLS=filtLS.length;
-  const lsCov=pct(totalLS,totalNB);
   const avgConv=pct(totalB,totalW);
+  const lsCov=pct(totalLS,totalNB);
 
-  // Market map
   const mktMap={};
   filtStores.forEach(s=>{
     const w=f.date?s.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.w,0):s.totalW;
@@ -455,135 +449,79 @@ function renderOverview(){
     if(!mktMap[s.market])mktMap[s.market]={w:0,b:0,ls:0};
     mktMap[s.market].w+=w;mktMap[s.market].b+=b;
   });
-  filtLS.forEach(r=>{
-    const wkStore=r._wkStore;
-    if(!wkStore)return;
-    if(!mktMap[wkStore.market])mktMap[wkStore.market]={w:0,b:0,ls:0};
-    mktMap[wkStore.market].ls++;
-  });
+  filtLS.forEach(r=>{if(r._wkStore&&mktMap[r._wkStore.market])mktMap[r._wkStore.market].ls++;});
   const mktArr=Object.entries(mktMap).sort((a,b)=>b[1].w-a[1].w);
 
-  // Day rows
   const filtDayMap={};
   filtStores.forEach(s=>s.days.forEach(d=>{
     if(f.date&&d.dk!==f.date)return;
     if(!filtDayMap[d.dk])filtDayMap[d.dk]={dk:d.dk,dayNum:d.dayNum,w:0,b:0,ls:0};
     filtDayMap[d.dk].w+=d.w;filtDayMap[d.dk].b+=d.b;
   }));
-  filtLS.forEach(r=>{if(r._dk&&filtDayMap[r._dk])filtDayMap[r._dk].ls++;});
+  filtLS.forEach(r=>{if(r._syncedDk&&filtDayMap[r._syncedDk])filtDayMap[r._syncedDk].ls++;});
   const dayRows=Object.values(filtDayMap).sort((a,b)=>a.dayNum-b.dayNum);
 
-  const mktTblRows=mktArr.map(([mkt,v])=>{
-    const nb=v.w-v.b;const cv=pct(v.b,v.w);const lsPct=pct(v.ls,nb);
-    return{cells:[`<span class="clickable" onclick="showMarketModal('${mkt.replace(/'/g,"\\'")}')"><strong>${mkt}</strong></span>`,fi(v.w),fi(v.b),fi(nb),`<span class="badge ${bc(cv)}">${cv}%</span>`,fi(v.ls),`<span class="badge ${bc(lsPct)}">${lsPct}%</span>`]};
-  });
-  const dayTblRows=dayRows.map(d=>{
-    const nb=d.w-d.b;const conv=pct(d.b,d.w);const lsPct=pct(d.ls,nb);
-    return{cells:[`<strong>${fmtDK(d.dk)}</strong>`,fi(d.w),fi(d.b),`<span class="badge ${bc(conv)}">${conv}%</span>`,fi(nb),fi(d.ls),`<span class="badge ${bc(lsPct)}">${lsPct}%</span>`]};
-  });
+  const mktTblRows=mktArr.map(([mkt,v])=>{const nb=v.w-v.b;const cv=pct(v.b,v.w);const lsPct=pct(v.ls,nb);
+    return{cells:[`<span class="clickable" onclick="showMarketModal('${mkt.replace(/'/g,"\\'")}')">${mkt}</span>`,fi(v.w),fi(v.b),fi(nb),`<span class="badge ${bc(cv)}">${cv}%</span>`,fi(v.ls),`<span class="badge ${bc(lsPct)}">${lsPct}%</span>`]};});
+  const dayTblRows=dayRows.map(d=>{const nb=d.w-d.b;const conv=pct(d.b,d.w);const lsPct=pct(d.ls,nb);
+    return{cells:[`<strong>${fmtDK(d.dk)}</strong>`,fi(d.w),fi(d.b),`<span class="badge ${bc(conv)}">${conv}%</span>`,fi(nb),fi(d.ls),`<span class="badge ${bc(lsPct)}">${lsPct}%</span>`]};});
 
-  document.getElementById('ov').innerHTML=filterBarHTML()+`
+  document.getElementById('ov').innerHTML=`
     <div class="metrics">
       <div class="metric blue"><div class="lbl">Total walkins</div><div class="val">${fi(totalW)}</div><div class="sub">${filtStores.length} stores</div></div>
       <div class="metric green"><div class="lbl">Total bills</div><div class="val">${fi(totalB)}</div><div class="sub">${avgConv}% conversion</div></div>
       <div class="metric red"><div class="lbl">Non-buyers</div><div class="val">${fi(totalNB)}</div><div class="sub">walkins − bills</div></div>
       <div class="metric amber"><div class="lbl">Loss captured</div><div class="val">${fi(totalLS)}</div><div class="sub">${lsCov}% of non-buyers</div></div>
     </div>
-    <div class="card">
-      <div class="card-title">Market summary — click market for store details</div>
+    <div class="card"><div class="card-title">Market summary — click market for store details</div>
       ${sortableTbl(['Market','Walkins','Bills','Non-buyers','Conv%','Loss captured','Coverage%'],mktTblRows,['Total',fi(totalW),fi(totalB),fi(totalNB),`<span class="badge ${bc(avgConv)}">${avgConv}%</span>`,fi(totalLS),`<span class="badge ${bc(lsCov)}">${lsCov}%</span>`])}
     </div>
-    <div class="card">
-      <div class="card-title">Day-wise summary</div>
+    <div class="card"><div class="card-title">Day-wise summary</div>
       ${sortableTbl(['Date','Walkins','Bills','Conv%','Non-buyers','Loss captured','Coverage%'],dayTblRows,['Total',fi(totalW),fi(totalB),`<span class="badge ${bc(avgConv)}">${avgConv}%</span>`,fi(totalNB),fi(totalLS),`<span class="badge ${bc(lsCov)}">${lsCov}%</span>`])}
     </div>`;
 }
 
 // ── LOSS OF SALE TAB ──────────────────────────────────────
-// ── LOSS TAB SYNC STATE ───────────────────────────────────
-let _lsSyncOn=false;
-function filterLSTab(f){
-  const{storeIdx,reasonIdx}=_LS_IDX;
-  return _LS_ROWS.filter(r=>{
-    const wkStore=r._wkStore;
-    const storeRM=wkStore?wkStore.rm:r._rm;
-    if(_lsSyncOn&&!r._dk)return false;
-    if(f.date&&r._dk!==f.date)return false;
-    if(f.rm&&storeRM!==f.rm)return false;
-    if(f.cluster&&(!wkStore||wkStore.cluster!==f.cluster))return false;
-    if(f.market&&(!wkStore||wkStore.market!==f.market))return false;
-    if(f.store&&storeIdx>=0&&String(r[storeIdx]||'')!==f.store)return false;
-    if(f.reason&&reasonIdx>=0&&String(r[reasonIdx]||'')!==f.reason)return false;
-    return true;
-  });
-}
-window.toggleLSSync=function(){
-  _lsSyncOn=document.getElementById('ls-sync-toggle').checked;
-  renderGlobalFilterBar();
-  renderAll();
-};
-
 function renderLoss(){
   const f=getFilters();
-  const rows=filterLSTab(f); // uses toggle state
+  const rows=filterLSTab(f);
   const total=rows.length;
-  const allRows=_LS_ROWS.length; // total in sheet
-  const syncedRows=filterLS(f).length; // walkins-synced count
-  const lastWkDay=_WK&&_WK.days.length?_WK.days[_WK.days.length-1]:null;
   const{reasonIdx,catIdx,qtyIdx,valIdx,storeIdx}=_LS_IDX;
   const totalQty=qtyIdx>=0?rows.reduce((s,r)=>s+n(r[qtyIdx]),0):0;
   const totalVal=valIdx>=0?rows.reduce((s,r)=>s+n(r[valIdx]),0):0;
 
-  function grp(getKey){
-    const m={};
-    rows.forEach(r=>{const k=String(getKey(r)||'Unknown');if(!m[k])m[k]={c:0,q:0,v:0};m[k].c++;if(qtyIdx>=0)m[k].q+=n(r[qtyIdx]);if(valIdx>=0)m[k].v+=n(r[valIdx]);});
-    return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
-  }
+  function grp(getKey){const m={};rows.forEach(r=>{const k=String(getKey(r)||'Unknown');if(!m[k])m[k]={c:0,q:0,v:0};m[k].c++;if(qtyIdx>=0)m[k].q+=n(r[qtyIdx]);if(valIdx>=0)m[k].v+=n(r[valIdx]);});return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);}
   const rGrp=grp(r=>reasonIdx>=0?r[reasonIdx]:'Unknown');
   const cGrp=grp(r=>catIdx>=0?r[catIdx]:'Unknown');
   const sGrp=grp(r=>storeIdx>=0?r[storeIdx]:'Unknown');
   const rmGrp=grp(r=>r._rm||'Unknown');
   const topR=rGrp[0],topC=cGrp[0],topS=sGrp[0],topRM=rmGrp[0],lowS=sGrp[sGrp.length-1];
   const top3Pct=pct(rGrp.slice(0,3).reduce((s,x)=>s+x[1].c,0),total);
-
-  // Mobile
-  const validM=rows.filter(r=>r._mob==='valid').length;
-  const invL=rows.filter(r=>r._mob==='invalid_length').length;
-  const invJ=rows.filter(r=>r._mob==='invalid_junk').length;
-  const missM=rows.filter(r=>r._mob==='missing').length;
-
-  // Timing
+  const validM=rows.filter(r=>r._mob==='valid').length,invL=rows.filter(r=>r._mob==='invalid_length').length,invJ=rows.filter(r=>r._mob==='invalid_junk').length,missM=rows.filter(r=>r._mob==='missing').length;
   const hourMap={};rows.forEach(r=>{if(r._time){if(!hourMap[r._time])hourMap[r._time]=0;hourMap[r._time]++;}});
   const hourArr=Object.entries(hourMap).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
   const topHour=hourArr.length?hourArr.reduce((a,b)=>a[1]>b[1]?a:b):null;
-
-  // Day map
-  const dayMapLS={};rows.forEach(r=>{if(r._dk){if(!dayMapLS[r._dk])dayMapLS[r._dk]=0;dayMapLS[r._dk]++;}});
+  const dayMapLS={};rows.forEach(r=>{const dk=_lsSyncOn?r._syncedDk:r._dk;if(dk){if(!dayMapLS[dk])dayMapLS[dk]=0;dayMapLS[dk]++;}});
   const dayArr=Object.entries(dayMapLS).sort((a,b)=>a[0].localeCompare(b[0]));
-
   const prAlert=sh=>sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Medium</span>':'<span class="badge badge-green">Low</span>';
   const stAlert=sh=>sh>=10?'<span class="badge badge-red">High</span>':sh>=5?'<span class="badge badge-amber">Watch</span>':'<span class="badge badge-green">OK</span>';
+  const mkHdr=n=>['Name','Count',...(qtyIdx>=0?['Qty']:[]),...(valIdx>=0?['Value']:[]),'Share%','Alert'].map((h,i)=>i===0?n:h);
+  const mkFtr=()=>['Total',fi(total),...(qtyIdx>=0?[fi(totalQty)]:[]),...(valIdx>=0?[`₹${fs(totalVal)}`]:[]),'100%',''];
+  const mkRows=(grp,alertFn,clkFn)=>grp.map(([k,v])=>{const sh=pct(v.c,total);return{cells:[clkFn?`<span class="clickable" onclick="${clkFn(k)}">${k}</span>`:k,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,alertFn(sh)]};});
 
-  const mkRows=(grp,alertFn,clickFn)=>grp.map(([k,v])=>{
-    const sh=pct(v.c,total);
-    return{cells:[clickFn?`<span class="clickable" onclick="${clickFn(k)}">${k}</span>`:k,fi(v.c),qtyIdx>=0?fi(v.q):'',valIdx>=0?`₹${fs(v.v)}`:'',`${sh}%`,alertFn(sh)].filter((_,i)=>(qtyIdx>=0||i!==2)&&(valIdx>=0||i!==3))};
-  });
-  const mkHdr=(name)=>['Name','Count',...(qtyIdx>=0?['Qty']:[]),...(valIdx>=0?['Value']:[]),'Share%','Alert'].map((h,i)=>i===0?name:h);
-  const mkFtr=(tot)=>['Total',fi(tot),...(qtyIdx>=0?[fi(totalQty)]:[]),...(valIdx>=0?[`₹${fs(totalVal)}`]:[]),'100%',''];
-
-  document.getElementById('ls').innerHTML=filterBarHTML()+`
+  document.getElementById('ls').innerHTML=`
     <div class="metrics">
       <div class="metric"><div class="lbl">Total records</div><div class="val">${fi(total)}</div><div class="sub">${_lsSyncOn?'synced to walkins':'all sheet data'}</div></div>
       ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Total qty lost</div><div class="val">${fi(totalQty)}</div><div class="sub">units</div></div>`:''}
-      ${valIdx>=0?`<div class="metric amber"><div class="lbl">Total loss value</div><div class="val">₹${fs(totalVal)}</div><div class="sub">estimated</div></div>`:''}
+      ${valIdx>=0?`<div class="metric amber"><div class="lbl">Total loss value</div><div class="val">₹${fs(totalVal)}</div></div>`:''}
       <div class="metric"><div class="lbl">Stores reporting</div><div class="val">${sGrp.length}</div></div>
     </div>
     <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.75rem;">Insights & actionables</div>
     <div class="insights" style="margin-bottom:1.25rem;">
-      <div class="insight red"><div class="i-label">🔴 Top loss reason</div><div class="i-val">${topR?pct(topR[1].c,total):0}%</div><div class="i-title">${topR?topR[0]:'—'}</div><div class="i-body">Train staff to address this immediately.</div></div>
+      <div class="insight red"><div class="i-label">🔴 Top loss reason</div><div class="i-val">${topR?pct(topR[1].c,total):0}%</div><div class="i-title">${topR?topR[0]:'—'}</div><div class="i-body">Train staff immediately.</div></div>
       <div class="insight red"><div class="i-label">🔴 Highest loss store</div><div class="i-val">${fi(topS?topS[1].c:0)}</div><div class="i-title">${topS?topS[0]:'—'}</div><div class="i-body">RM must visit urgently.</div></div>
       <div class="insight red"><div class="i-label">🔴 Top loss category</div><div class="i-val">${topC?pct(topC[1].c,total):0}%</div><div class="i-title">${topC?topC[0]:'—'}</div><div class="i-body">Check stock & pricing gaps now.</div></div>
-      <div class="insight amber"><div class="i-label">🟡 Reason concentration</div><div class="i-val">${top3Pct}%</div><div class="i-title">Top 3 reasons</div><div class="i-body">${top3Pct>=70?'Fix top 3 for maximum impact.':'Spread — needs systematic review.'}</div></div>
+      <div class="insight amber"><div class="i-label">🟡 Reason concentration</div><div class="i-val">${top3Pct}%</div><div class="i-title">Top 3 reasons</div><div class="i-body">${top3Pct>=70?'Fix top 3 for max impact.':'Spread — needs systematic review.'}</div></div>
       <div class="insight amber"><div class="i-label">🟡 RM with most loss</div><div class="i-val">${fi(topRM?topRM[1].c:0)}</div><div class="i-title">${topRM?topRM[0]:'—'}</div><div class="i-body">Review cluster & coach RM.</div></div>
       <div class="insight green"><div class="i-label">🟢 Lowest loss store</div><div class="i-val">${fi(lowS?lowS[1].c:0)}</div><div class="i-title">${lowS?lowS[0]:'—'}</div><div class="i-body">Replicate best practices.</div></div>
     </div>
@@ -595,23 +533,77 @@ function renderLoss(){
         <div class="metric amber"><div class="lbl">Missing</div><div class="val">${fi(missM)}</div><div class="sub">blank</div></div>
       </div>
     </div>
-    <div class="card"><div class="card-title">⏰ Loss by timing${topHour?` <span style="font-size:11px;font-weight:400;color:var(--muted);">Peak: ${topHour[0]} (${fi(topHour[1])} entries)</span>`:''}</div>
+    <div class="card"><div class="card-title">⏰ Loss by timing${topHour?` — Peak: ${topHour[0]} (${fi(topHour[1])} entries)`:''}</div>
       ${hourArr.length?sortableTbl(['Time slot','Count','Share%','Level'],hourArr.map(([h,c])=>({cells:[h,fi(c),`${pct(c,rows.filter(r=>r._time).length)}%`,topHour&&h===topHour[0]?'<span class="badge badge-red">Peak</span>':c>=(topHour?topHour[1]*.7:0)?'<span class="badge badge-amber">High</span>':'<span class="badge badge-green">Normal</span>']}))):`<p style="color:var(--muted);font-size:12px;">No timing data.</p>`}
     </div>
     <div class="card"><div class="card-title">Day-wise loss entries</div>
       ${sortableTbl(['Date','Count','Share%'],dayArr.map(([dk,c])=>({cells:[`<strong>${fmtDK(dk)}</strong>`,fi(c),`${pct(c,total)}%`]})),['Total',fi(total),'100%'])}
     </div>
-    <div class="card"><div class="card-title">Loss by reason</div>
-      ${sortableTbl(mkHdr('Reason'),mkRows(rGrp,prAlert,null),mkFtr(total))}
-    </div>
-    <div class="card"><div class="card-title">Loss by category</div>
-      ${sortableTbl(mkHdr('Category'),mkRows(cGrp,prAlert,null),mkFtr(total))}
-    </div>
+    <div class="card"><div class="card-title">Loss by reason</div>${sortableTbl(mkHdr('Reason'),mkRows(rGrp,prAlert,null),mkFtr())}</div>
+    <div class="card"><div class="card-title">Loss by category</div>${sortableTbl(mkHdr('Category'),mkRows(cGrp,prAlert,null),mkFtr())}</div>
     <div class="card"><div class="card-title">Loss by store — click store name for detailed report</div>
-      ${sortableTbl(mkHdr('Store'),sGrp.map(([k,v])=>{const sh=pct(v.c,total);return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,stAlert(sh)]};}),mkFtr(total))}
+      ${sortableTbl(mkHdr('Store'),mkRows(sGrp,stAlert,k=>`showStoreModal('${k.replace(/'/g,"\\'")}')`),mkFtr())}
     </div>
     <div class="card"><div class="card-title">Loss by regional manager</div>
       ${sortableTbl(['RM','Count',...(qtyIdx>=0?['Qty']:[]),...(valIdx>=0?['Value']:[]),'Share%','Alert'],rmGrp.map(([k,v])=>{const sh=pct(v.c,total);return{cells:[`<strong>${k}</strong>`,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Watch</span>':'<span class="badge badge-green">OK</span>']};}))}</div>`;
+}
+
+// ── LOSS DETAIL TAB ───────────────────────────────────────
+function renderLossDetail(){
+  const f=getFilters();
+  const rows=filterLS(f);
+  const total=rows.length;
+  const{storeIdx,reasonIdx,catIdx,qtyIdx,valIdx,dateIdx}=_LS_IDX;
+  const totalQty=qtyIdx>=0?rows.reduce((s,r)=>s+n(r[qtyIdx]),0):0;
+  const totalVal=valIdx>=0?rows.reduce((s,r)=>s+n(r[valIdx]),0):0;
+  const allDKs=_LS_ROWS.map(r=>{const d=toAprilDay(r[dateIdx]);return d?dayKey(d):null;}).filter(Boolean);
+  const latestInSheet=allDKs.length?allDKs.reduce((a,b)=>a>b?a:b):null;
+  const earliestInSheet=allDKs.length?allDKs.reduce((a,b)=>a<b?a:b):null;
+  const lastWkDay=_WK&&_WK.days.length?_WK.days[_WK.days.length-1]:null;
+  const firstWkDay=_WK&&_WK.days.length?_WK.days[0]:null;
+  const excluded=_LS_ROWS.filter(r=>r._dk&&!r._syncedDk).length;
+
+  function grp(getKey){const m={};rows.forEach(r=>{const k=String(getKey(r)||'Unknown');if(!m[k])m[k]={c:0,q:0,v:0};m[k].c++;if(qtyIdx>=0)m[k].q+=n(r[qtyIdx]);if(valIdx>=0)m[k].v+=n(r[valIdx]);});return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);}
+  const rmGrp=grp(r=>r._rm||'Unknown');
+  const mktGrp=grp(r=>r._wkStore?r._wkStore.market:'Unknown');
+  const sGrp=grp(r=>storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown');
+  const stAlert=sh=>sh>=10?'<span class="badge badge-red">High</span>':sh>=5?'<span class="badge badge-amber">Watch</span>':'<span class="badge badge-green">OK</span>';
+  const mkHdr=n=>['Name','Count',...(qtyIdx>=0?['Qty']:[]),...(valIdx>=0?['Value']:[]),'Share%','Alert'].map((h,i)=>i===0?n:h);
+  const ftr=()=>['Total',fi(total),...(qtyIdx>=0?[fi(totalQty)]:[]),...(valIdx>=0?[`₹${fs(totalVal)}`]:[]),'100%',''];
+  const mkRow=(k,v,clkFn)=>{const sh=pct(v.c,total);return{cells:[clkFn?`<span class="clickable" onclick="${clkFn(k)}">${k}</span>`:k,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,stAlert(sh)]};};
+
+  document.getElementById('lsd').innerHTML=`
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:1.25rem;display:flex;flex-wrap:wrap;gap:16px;align-items:center;font-size:12px;">
+      <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">📋</span>
+        <div><div style="font-weight:600;">Loss of Sale data in sheet</div>
+        <div style="color:var(--muted);">${earliestInSheet?fmtDK(earliestInSheet):'—'} → <strong style="color:var(--blue);">${latestInSheet?fmtDK(latestInSheet):'—'}</strong> · ${_LS_ROWS.length} total entries</div></div>
+      </div>
+      <div style="width:1px;height:32px;background:var(--border);"></div>
+      <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">📅</span>
+        <div><div style="font-weight:600;">Walkins updated till</div>
+        <div style="color:var(--muted);">${firstWkDay?fmtDK(firstWkDay.dk):'—'} → <strong style="color:var(--green);">${lastWkDay?fmtDK(lastWkDay.dk):'—'}</strong> · ${_WK.days.length} days</div></div>
+      </div>
+      <div style="width:1px;height:32px;background:var(--border);"></div>
+      <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">✅</span>
+        <div><div style="font-weight:600;color:var(--green);">Showing in dashboard</div>
+        <div style="color:var(--muted);"><strong style="color:var(--green);">${fi(total)} entries</strong> (up to ${lastWkDay?fmtDK(lastWkDay.dk):'—'})${excluded>0?` · <span style="color:var(--amber);">${fi(excluded)} entries beyond walkins excluded</span>`:''}</div></div>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="lbl">Total loss entries</div><div class="val">${fi(total)}</div><div class="sub">synced to walkins</div></div>
+      ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Total qty lost</div><div class="val">${fi(totalQty)}</div><div class="sub">units</div></div>`:''}
+      ${valIdx>=0?`<div class="metric amber"><div class="lbl">Total loss value</div><div class="val">₹${fs(totalVal)}</div></div>`:''}
+      <div class="metric"><div class="lbl">Stores reporting</div><div class="val">${sGrp.length}</div></div>
+    </div>
+    <div class="card"><div class="card-title">Loss by regional manager — click RM for store details</div>
+      ${sortableTbl(mkHdr('RM'),rmGrp.map(([k,v])=>mkRow(k,v,k=>`showLSDRMModal('${k.replace(/'/g,"\\'")}')`)),ftr())}
+    </div>
+    <div class="card"><div class="card-title">Loss by market — click market for store details</div>
+      ${sortableTbl(mkHdr('Market'),mktGrp.map(([k,v])=>mkRow(k,v,k=>`showLSDMktModal('${k.replace(/'/g,"\\'")}')`)),ftr())}
+    </div>
+    <div class="card"><div class="card-title">Loss by store — click store for detailed report</div>
+      ${sortableTbl(mkHdr('Store'),sGrp.map(([k,v])=>mkRow(k,v,k=>`showStoreModal('${k.replace(/'/g,"\\'")}')`)),ftr())}
+    </div>`;
 }
 
 // ── AUDIT TAB ─────────────────────────────────────────────
@@ -621,390 +613,85 @@ function renderAudit(){
   const filtLS=filterLS(f);
   const{storeIdx,reasonIdx,phoneIdx,subCatIdx,sizeIdx,styleIdx,colorIdx,polishIdx,designIdx,notesIdx}=_LS_IDX;
 
-  // Per-store stats
   const storeAudit=filtStores.map(s=>{
     const w=f.date?s.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.w,0):s.totalW;
     const b=f.date?s.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.b,0):s.totalB;
     const nb=w-b;
     const lsRows=filtLS.filter(r=>normStore(String(r[storeIdx]||''))===s.outletNorm);
-    const ls=lsRows.length;
-    const lsCov=pct(ls,nb);
-    const validM=lsRows.filter(r=>r._mob==='valid').length;
-    const badM=lsRows.filter(r=>r._mob!=='valid').length;
-    const mobPct=pct(badM,ls||1);
-    // top reason
+    const ls=lsRows.length;const lsCov=pct(ls,nb);
+    const badM=lsRows.filter(r=>r._mob!=='valid').length;const mobPct=pct(badM,ls||1);
     const rMap={};lsRows.forEach(r=>{const k=reasonIdx>=0?String(r[reasonIdx]||'Unknown'):'Unknown';rMap[k]=(rMap[k]||0)+1;});
     const topReason=Object.entries(rMap).sort((a,b)=>b[1]-a[1])[0];
     const topReasonPct=topReason?pct(topReason[1],ls||1):0;
-    return{outlet:s.outlet,market:s.market,rm:s.rm,type:s.type,w,b,nb,ls,lsCov,badM,mobPct,topReason:topReason?topReason[0]:'—',topReasonPct};
+    return{outlet:s.outlet,market:s.market,rm:s.rm,w,b,nb,ls,lsCov,badM,mobPct,topReason:topReason?topReason[0]:'—',topReasonPct};
   }).sort((a,b)=>a.lsCov-b.lsCov);
 
-  // 1. NON-BUYER COVERAGE AUDIT — sorted by worst coverage first
-  const covRows=storeAudit.map(s=>{
-    const cls=s.lsCov<10?'audit-red':s.lsCov<25?'audit-amber':'';
-    return{cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.market,s.rm,fi(s.nb),fi(s.ls),`<span class="badge ${bc(s.lsCov)}">${s.lsCov}%</span>`,s.lsCov<10?'<span class="badge badge-red">🔴 Critical</span>':s.lsCov<25?'<span class="badge badge-amber">🟡 Low</span>':'<span class="badge badge-green">🟢 OK</span>'],_cls:cls};
-  });
-
-  // 2. MOBILE QUALITY AUDIT — stores with >30% bad numbers
-  const mobRows=storeAudit.filter(s=>s.ls>0).sort((a,b)=>b.mobPct-a.mobPct).map(s=>{
-    const cls=s.mobPct>50?'audit-red':s.mobPct>20?'audit-amber':'';
-    return{cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.market,s.rm,fi(s.ls),fi(s.badM),`${s.mobPct}%`,s.mobPct>50?'<span class="badge badge-red">🔴 Critical</span>':s.mobPct>20?'<span class="badge badge-amber">🟡 High</span>':'<span class="badge badge-green">🟢 OK</span>'],_cls:cls};
-  });
-
-  // 3. REPEATED REASON AUDIT — stores where same reason >50% of their loss
-  const repRows=storeAudit.filter(s=>s.ls>0&&s.topReasonPct>=50).sort((a,b)=>b.topReasonPct-a.topReasonPct).map(s=>{
-    const cls=s.topReasonPct>=70?'audit-red':'audit-amber';
-    return{cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.market,s.rm,s.topReason,fi(s.ls),`${s.topReasonPct}%`,s.topReasonPct>=70?'<span class="badge badge-red">🔴 Repetitive</span>':'<span class="badge badge-amber">🟡 Watch</span>'],_cls:cls};
-  });
-
-  // 4. TOP PRODUCT ISSUES — most repeated product combinations across all loss entries
+  const covRows=storeAudit.map(s=>({cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.market,s.rm,fi(s.nb),fi(s.ls),`<span class="badge ${bc(s.lsCov)}">${s.lsCov}%</span>`,s.lsCov<10?'<span class="badge badge-red">🔴 Critical</span>':s.lsCov<25?'<span class="badge badge-amber">🟡 Low</span>':'<span class="badge badge-green">🟢 OK</span>'],_cls:s.lsCov<10?'audit-red':s.lsCov<25?'audit-amber':''}));
+  const mobRows=storeAudit.filter(s=>s.ls>0).sort((a,b)=>b.mobPct-a.mobPct).map(s=>({cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.market,s.rm,fi(s.ls),fi(s.badM),`${s.mobPct}%`,s.mobPct>50?'<span class="badge badge-red">🔴 Critical</span>':s.mobPct>20?'<span class="badge badge-amber">🟡 High</span>':'<span class="badge badge-green">🟢 OK</span>'],_cls:s.mobPct>50?'audit-red':s.mobPct>20?'audit-amber':''}));
+  const repRows=storeAudit.filter(s=>s.ls>0&&s.topReasonPct>=50).sort((a,b)=>b.topReasonPct-a.topReasonPct).map(s=>({cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.market,s.rm,s.topReason,fi(s.ls),`${s.topReasonPct}%`,s.topReasonPct>=70?'<span class="badge badge-red">🔴 Repetitive</span>':'<span class="badge badge-amber">🟡 Watch</span>'],_cls:s.topReasonPct>=70?'audit-red':'audit-amber'}));
   const prodMap={};
-  filtLS.forEach(r=>{
-    const k=r._product;if(!k||k==='Unknown')return;
-    if(!prodMap[k])prodMap[k]={c:0,stores:new Set(),reasons:{}};
-    prodMap[k].c++;
-    const stNorm=normStore(String(r[storeIdx]||''));
-    prodMap[k].stores.add(stNorm);
-    const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';
-    if(reason)prodMap[k].reasons[reason]=(prodMap[k].reasons[reason]||0)+1;
-  });
+  filtLS.forEach(r=>{const k=r._product;if(!k||k==='Unknown')return;if(!prodMap[k])prodMap[k]={c:0,stores:new Set(),reasons:{}};prodMap[k].c++;prodMap[k].stores.add(normStore(String(r[storeIdx]||'')));const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)prodMap[k].reasons[reason]=(prodMap[k].reasons[reason]||0)+1;});
   const prodArr=Object.entries(prodMap).sort((a,b)=>b[1].c-a[1].c).slice(0,30);
-  const prodRows=prodArr.map(([k,v],i)=>{
-    const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
-    const cls=i<5?'audit-red':i<15?'audit-amber':'';
-    return{cells:[k,fi(v.c),fi(v.stores.size),topR?topR[0]:'—',i<5?'<span class="badge badge-red">🔴 High repeat</span>':i<15?'<span class="badge badge-amber">🟡 Watch</span>':'<span class="badge badge-green">OK</span>'],_cls:cls};
-  });
+  const prodRows=prodArr.map(([k,v],i)=>{const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];return{cells:[k,fi(v.c),fi(v.stores.size),topR?topR[0]:'—',i<5?'<span class="badge badge-red">🔴 High repeat</span>':i<15?'<span class="badge badge-amber">🟡 Watch</span>':'<span class="badge badge-green">OK</span>'],_cls:i<5?'audit-red':i<15?'audit-amber':''};});
 
   const covCritical=storeAudit.filter(s=>s.lsCov<10).length;
   const mobCritical=storeAudit.filter(s=>s.mobPct>50&&s.ls>0).length;
   const repCritical=storeAudit.filter(s=>s.topReasonPct>=70&&s.ls>0).length;
 
-  // Store audit tables in a map for on-demand rendering
   const auditTables={
-    coverage:{
-      title:'🔴 Non-buyer coverage gaps — sorted worst first',
-      html:sortableTbl(['Store','Market','RM','Non-buyers','Loss captured','Coverage%','Status'],covRows,null,r=>r._cls)
-    },
-    mobile:{
-      title:'📱 Mobile number quality by store',
-      html:mobRows.length?sortableTbl(['Store','Market','RM','Loss entries','Invalid/Missing','Bad%','Status'],mobRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No mobile issues found.</p>'
-    },
-    reason:{
-      title:'🔁 Stores with repetitive loss reasons (same reason >50%)',
-      html:repRows.length?sortableTbl(['Store','Market','RM','Top reason','Loss entries','Repeat%','Status'],repRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No stores with repetitive reasons found.</p>'
-    },
-    product:{
-      title:'🏷️ Most repeated product issues (Sub category · Size · Style · Color · Polish · Design · Notes)',
-      html:prodRows.length?sortableTbl(['Product details','Count','Stores affected','Top reason','Alert'],prodRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No product data found.</p>'
-    }
+    coverage:{title:'🔴 Non-buyer coverage gaps — sorted worst first',html:sortableTbl(['Store','Market','RM','Non-buyers','Loss captured','Coverage%','Status'],covRows,null,r=>r._cls)},
+    mobile:{title:'📱 Mobile number quality by store',html:mobRows.length?sortableTbl(['Store','Market','RM','Loss entries','Invalid/Missing','Bad%','Status'],mobRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No mobile issues found.</p>'},
+    reason:{title:'🔁 Stores with repetitive loss reasons (same reason >50%)',html:repRows.length?sortableTbl(['Store','Market','RM','Top reason','Loss entries','Repeat%','Status'],repRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No stores with repetitive reasons found.</p>'},
+    product:{title:'🏷️ Most repeated product issues',html:prodRows.length?sortableTbl(['Product details','Count','Stores affected','Top reason','Alert'],prodRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No product data found.</p>'}
   };
-
   window._auditTables=auditTables;
-  window._activeAudit='coverage'; // default
+  if(!window._activeAudit)window._activeAudit='coverage';
 
-  document.getElementById('audit').innerHTML=filterBarHTML()+`
+  document.getElementById('audit').innerHTML=`
     <div class="metrics" style="cursor:pointer;">
-      <div class="metric red audit-card" id="ac-coverage" onclick="selectAudit('coverage')" style="border:2px solid var(--red);transition:all .15s;">
-        <div class="lbl">🔴 Coverage critical</div>
-        <div class="val">${covCritical}</div>
-        <div class="sub">stores &lt;10% coverage · click to view</div>
+      <div class="metric red audit-card" id="ac-coverage" onclick="selectAudit('coverage')" style="transition:all .15s;">
+        <div class="lbl">🔴 Coverage critical</div><div class="val">${covCritical}</div><div class="sub">stores &lt;10% coverage · click to view</div>
       </div>
       <div class="metric red audit-card" id="ac-mobile" onclick="selectAudit('mobile')" style="transition:all .15s;">
-        <div class="lbl">🔴 Mobile critical</div>
-        <div class="val">${mobCritical}</div>
-        <div class="sub">stores &gt;50% bad numbers · click to view</div>
+        <div class="lbl">🔴 Mobile critical</div><div class="val">${mobCritical}</div><div class="sub">stores &gt;50% bad numbers · click to view</div>
       </div>
       <div class="metric amber audit-card" id="ac-reason" onclick="selectAudit('reason')" style="transition:all .15s;">
-        <div class="lbl">🟡 Repeated reason</div>
-        <div class="val">${repCritical}</div>
-        <div class="sub">stores with &gt;70% same reason · click to view</div>
+        <div class="lbl">🟡 Repeated reason</div><div class="val">${repCritical}</div><div class="sub">stores &gt;70% same reason · click to view</div>
       </div>
       <div class="metric amber audit-card" id="ac-product" onclick="selectAudit('product')" style="transition:all .15s;">
-        <div class="lbl">🟡 Top product issues</div>
-        <div class="val">${prodArr.length}</div>
-        <div class="sub">repeated product combinations · click to view</div>
+        <div class="lbl">🟡 Top product issues</div><div class="val">${prodArr.length}</div><div class="sub">repeated combinations · click to view</div>
       </div>
     </div>
-
     <div class="audit-legend">
       <span><span class="leg-red"></span> Red = Critical / immediate action</span>
       <span><span class="leg-amber"></span> Amber = Watch / needs improvement</span>
     </div>
-
     <div class="card" id="audit-detail-card">
-      <div class="card-title" id="audit-detail-title">🔴 Non-buyer coverage gaps — sorted worst first</div>
-      <div id="audit-detail-body">${auditTables.coverage.html}</div>
+      <div class="card-title" id="audit-detail-title"></div>
+      <div id="audit-detail-body"></div>
     </div>`;
-
-  // Mark default active card
-  setTimeout(()=>selectAudit('coverage'),50);
+  setTimeout(()=>selectAudit(window._activeAudit),50);
 }
 
-function renderAll(){
-  renderGlobalFilterBar();
-  renderOverview();
-  renderLoss();
-  if(document.getElementById('lsd').classList.contains('active'))renderLossDetail();
-  if(document.getElementById('audit').classList.contains('active'))renderAudit();
-}
-
-// ── AUDIT CARD SELECTION ──────────────────────────────────
 window.selectAudit=function(key){
   window._activeAudit=key;
   const t=window._auditTables;if(!t)return;
-  // Update card styles
   ['coverage','mobile','reason','product'].forEach(k=>{
     const el=document.getElementById('ac-'+k);if(!el)return;
     const isRed=k==='coverage'||k==='mobile';
-    if(k===key){
-      el.style.border=`2px solid ${isRed?'var(--red)':'var(--amber)'}`;
-      el.style.boxShadow=`0 0 0 3px ${isRed?'rgba(196,48,48,0.15)':'rgba(196,122,15,0.15)'}`;
-      el.style.transform='translateY(-2px)';
-    } else {
-      el.style.border='1px solid var(--border)';
-      el.style.boxShadow='none';
-      el.style.transform='none';
-    }
+    if(k===key){el.style.border=`2px solid ${isRed?'var(--red)':'var(--amber)'}`;el.style.boxShadow=`0 0 0 3px ${isRed?'rgba(196,48,48,0.15)':'rgba(196,122,15,0.15)'}`;el.style.transform='translateY(-2px)';}
+    else{el.style.border='1px solid var(--border)';el.style.boxShadow='none';el.style.transform='none';}
   });
-  // Update detail panel
   const titleEl=document.getElementById('audit-detail-title');
   const bodyEl=document.getElementById('audit-detail-body');
   if(titleEl)titleEl.textContent=t[key].title;
-  if(bodyEl){bodyEl.innerHTML=t[key].html;const tblId=bodyEl.querySelector('table');if(tblId)makeSortable(tblId.id);}
+  if(bodyEl){bodyEl.innerHTML=t[key].html;const tbl=bodyEl.querySelector('table');if(tbl)makeSortable(tbl.id);}
 };
 
-// ── LOSS DETAIL TAB ───────────────────────────────────────
-function renderLossDetail(){
-  const f=getFilters();
-  const rows=filterLS(f);
-  const total=rows.length;
-  const{storeIdx,reasonIdx,catIdx,qtyIdx,valIdx,dateIdx}=_LS_IDX;
+// ── MODALS ────────────────────────────────────────────────
+const mts='padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.07);font-size:12px;';
+const ths='padding:6px 10px;color:#6b6b6b;font-size:11px;font-weight:600;text-transform:uppercase;border-bottom:2px solid rgba(0,0,0,0.09);text-align:left;';
 
-  // ── FIND LATEST DATE IN RAW LOSS DATA (before cutoff filter) ─
-  const allDKs=_LS_ROWS.map(r=>{
-    // Use raw date from original row to find what's actually in the sheet
-    const dayNum=toAprilDay(r[dateIdx]);
-    return dayNum?dayKey(dayNum):null;
-  }).filter(Boolean);
-  const latestInSheet=allDKs.length?allDKs.reduce((a,b)=>a>b?a:b):null;
-  const earliestInSheet=allDKs.length?allDKs.reduce((a,b)=>a<b?a:b):null;
-
-  // Walkins cutoff
-  const lastWkDay=_WK&&_WK.days.length?_WK.days[_WK.days.length-1]:null;
-  const firstWkDay=_WK&&_WK.days.length?_WK.days[0]:null;
-  const excluded=_LS_ROWS.filter(r=>{
-    const dayNum=toAprilDay(r[dateIdx]);
-    const dk=dayNum?dayKey(dayNum):null;
-    return dk&&!r._dk; // has a valid date but was excluded by cutoff
-  }).length;
-
-  // ── GROUP BY HELPER ───────────────────────────────────────
-  function grp(getKey){
-    const m={};
-    rows.forEach(r=>{
-      const k=String(getKey(r)||'Unknown');
-      if(!m[k])m[k]={c:0,q:0,v:0};
-      m[k].c++;
-      if(qtyIdx>=0)m[k].q+=n(r[qtyIdx]);
-      if(valIdx>=0)m[k].v+=n(r[valIdx]);
-    });
-    return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
-  }
-
-  const rmGrp=grp(r=>r._rm||'Unknown');
-  const mktGrp=grp(r=>r._wkStore?r._wkStore.market:'Unknown');
-  const sGrp=grp(r=>storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown');
-  const totalQty=qtyIdx>=0?rows.reduce((s,r)=>s+n(r[qtyIdx]),0):0;
-  const totalVal=valIdx>=0?rows.reduce((s,r)=>s+n(r[valIdx]),0):0;
-
-  const stAlert=sh=>sh>=10?'<span class="badge badge-red">High</span>':sh>=5?'<span class="badge badge-amber">Watch</span>':'<span class="badge badge-green">OK</span>';
-  const hdrs=()=>['Name','Count',...(qtyIdx>=0?['Qty']:[]),...(valIdx>=0?['Value']:[]),'Share%','Alert'];
-  const mkRow=(k,v,clickFn)=>{
-    const sh=pct(v.c,total);
-    return{cells:[
-      clickFn?`<span class="clickable" onclick="${clickFn(k)}">${k}</span>`:k,
-      fi(v.c),
-      ...(qtyIdx>=0?[fi(v.q)]:[]),
-      ...(valIdx>=0?[`₹${fs(v.v)}`]:[]),
-      `${sh}%`,
-      stAlert(sh)
-    ]};
-  };
-
-  document.getElementById('lsd').innerHTML=filterBarHTML()+`
-
-    <!-- DATA FRESHNESS BAR -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:1.25rem;display:flex;flex-wrap:wrap;gap:16px;align-items:center;font-size:12px;">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span style="font-size:16px;">📋</span>
-        <div>
-          <div style="font-weight:600;color:var(--text);">Loss of Sale data in sheet</div>
-          <div style="color:var(--muted);">${earliestInSheet?fmtDK(earliestInSheet):'—'} → <strong style="color:var(--blue);">${latestInSheet?fmtDK(latestInSheet):'—'}</strong> &nbsp;·&nbsp; ${allDKs.length} total entries in sheet</div>
-        </div>
-      </div>
-      <div style="width:1px;height:32px;background:var(--border);"></div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span style="font-size:16px;">📅</span>
-        <div>
-          <div style="font-weight:600;color:var(--text);">Walkins updated till</div>
-          <div style="color:var(--muted);">${firstWkDay?fmtDK(firstWkDay.dk):'—'} → <strong style="color:var(--green);">${lastWkDay?fmtDK(lastWkDay.dk):'—'}</strong> &nbsp;·&nbsp; ${_WK.days.length} days</div>
-        </div>
-      </div>
-      <div style="width:1px;height:32px;background:var(--border);"></div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span style="font-size:16px;">✅</span>
-        <div>
-          <div style="font-weight:600;color:var(--green);">Considered in dashboard</div>
-          <div style="color:var(--muted);"><strong style="color:var(--green);">${fi(total)} entries</strong> (up to ${lastWkDay?fmtDK(lastWkDay.dk):'—'})${excluded>0?` &nbsp;·&nbsp; <span style="color:var(--amber);">${fi(excluded)} entries beyond walkins excluded</span>`:''}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="metrics">
-      <div class="metric"><div class="lbl">Total loss entries</div><div class="val">${fi(total)}</div><div class="sub">synced to walkins cutoff</div></div>
-      ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Total qty lost</div><div class="val">${fi(totalQty)}</div><div class="sub">units</div></div>`:''}
-      ${valIdx>=0?`<div class="metric amber"><div class="lbl">Total loss value</div><div class="val">₹${fs(totalVal)}</div></div>`:''}
-      <div class="metric"><div class="lbl">Stores reporting</div><div class="val">${sGrp.length}</div></div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Loss by regional manager — click RM for store details</div>
-      ${sortableTbl(['RM',...hdrs().slice(1)],rmGrp.map(([k,v])=>mkRow(k,v,k=>`showLSDRMModal('${k.replace(/'/g,"\\'")}')`)),['Total',fi(total),...(qtyIdx>=0?[fi(totalQty)]:[]),...(valIdx>=0?[`₹${fs(totalVal)}`]:[]),'100%',''])}
-    </div>
-
-    <div class="card">
-      <div class="card-title">Loss by market — click market for store details</div>
-      ${sortableTbl(['Market',...hdrs().slice(1)],mktGrp.map(([k,v])=>mkRow(k,v,k=>`showLSDMktModal('${k.replace(/'/g,"\\'")}')`)),['Total',fi(total),...(qtyIdx>=0?[fi(totalQty)]:[]),...(valIdx>=0?[`₹${fs(totalVal)}`]:[]),'100%',''])}
-    </div>
-
-    <div class="card">
-      <div class="card-title">Loss by store — click store for detailed report</div>
-      ${sortableTbl(
-        ['Store',...hdrs().slice(1)],
-        sGrp.map(([k,v])=>mkRow(k,v,k=>`showStoreModal('${k.replace(/'/g,"\\'")}')`)),
-        ['Total',fi(total),...(qtyIdx>=0?[fi(totalQty)]:[]),...(valIdx>=0?[`₹${fs(totalVal)}`]:[]),'100%','']
-      )}
-    </div>`;
-}
-
-// ── LOSS DETAIL — RM MODAL (store list for that RM) ───────
-window.showLSDRMModal=function(rm){
-  const f=getFilters();
-  const rows=filterLS({...f,rm});
-  const{storeIdx,qtyIdx,valIdx,reasonIdx,catIdx}=_LS_IDX;
-  const total=rows.length;
-  const totalQty=qtyIdx>=0?rows.reduce((s,r)=>s+n(r[qtyIdx]),0):0;
-
-  // Group by store
-  function grpStore(){
-    const m={};
-    rows.forEach(r=>{
-      const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
-      if(!m[k])m[k]={c:0,q:0,v:0,reasons:{},cats:{}};
-      m[k].c++;
-      if(qtyIdx>=0)m[k].q+=n(r[qtyIdx]);
-      if(valIdx>=0)m[k].v+=n(r[valIdx]);
-      const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';
-      if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;
-      const cat=catIdx>=0?String(r[catIdx]||''):'';
-      if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;
-    });
-    return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
-  }
-  const sGrp=grpStore();
-
-  const storeRows=sGrp.map(([k,v])=>{
-    const sh=pct(v.c,total);
-    const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
-    const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
-    // Get walkins for this store
-    const wkStore=_WK.stores.find(s=>s.outlet===k||s.outletNorm===normStore(k));
-    const wkF=f.date?{...f,rm}:{...f,rm};
-    const wkDays=wkStore?(f.date?wkStore.days.filter(d=>d.dk===f.date):wkStore.days):[];
-    const stW=wkDays.reduce((s,d)=>s+d.w,0);
-    const stB=wkDays.reduce((s,d)=>s+d.b,0);
-    const stNB=stW-stB;
-    return{cells:[
-      `<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
-      wkStore?wkStore.market:'—',
-      fi(stW),fi(stB),fi(stNB),
-      `<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,
-      fi(v.c),
-      `${pct(v.c,stNB||1)}%`,
-      topR?topR[0]:'—',
-      topC?topC[0]:'—'
-    ]};
-  });
-
-  openModal(`RM: ${rm} — store detail`,`${sGrp.length} stores · ${fi(total)} loss entries`,`
-    <div class="metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem;">
-      <div class="metric amber"><div class="lbl">Loss entries</div><div class="val">${fi(total)}</div></div>
-      <div class="metric"><div class="lbl">Stores</div><div class="val">${sGrp.length}</div></div>
-      ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Qty lost</div><div class="val">${fi(totalQty)}</div></div>`:''}
-    </div>
-    ${sortableTbl(
-      ['Store','Market','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],
-      storeRows,
-      null
-    )}`);
-};
-
-// ── LOSS DETAIL — MARKET MODAL (store list for that market) ─
-window.showLSDMktModal=function(market){
-  const f=getFilters();
-  const rows=filterLS({...f,market});
-  const{storeIdx,qtyIdx,valIdx,reasonIdx,catIdx}=_LS_IDX;
-  const total=rows.length;
-  const totalQty=qtyIdx>=0?rows.reduce((s,r)=>s+n(r[qtyIdx]),0):0;
-
-  // Group by store
-  const m={};
-  rows.forEach(r=>{
-    const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
-    if(!m[k])m[k]={c:0,q:0,v:0,reasons:{},cats:{}};
-    m[k].c++;
-    if(qtyIdx>=0)m[k].q+=n(r[qtyIdx]);
-    if(valIdx>=0)m[k].v+=n(r[valIdx]);
-    const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;
-    const cat=catIdx>=0?String(r[catIdx]||''):'';if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;
-  });
-  const sGrp=Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
-
-  const storeRows=sGrp.map(([k,v])=>{
-    const sh=pct(v.c,total);
-    const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
-    const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
-    const wkStore=_WK.stores.find(s=>s.outlet===k||s.outletNorm===normStore(k));
-    const wkDays=wkStore?(f.date?wkStore.days.filter(d=>d.dk===f.date):wkStore.days):[];
-    const stW=wkDays.reduce((s,d)=>s+d.w,0);
-    const stB=wkDays.reduce((s,d)=>s+d.b,0);
-    const stNB=stW-stB;
-    return{cells:[
-      `<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
-      v.c>0?(rows.find(r=>String(r[storeIdx]||'')===k)||{})._rm||'—':'—',
-      fi(stW),fi(stB),fi(stNB),
-      `<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,
-      fi(v.c),
-      `${pct(v.c,stNB||1)}%`,
-      topR?topR[0]:'—',
-      topC?topC[0]:'—'
-    ]};
-  });
-
-  openModal(`Market: ${market} — store detail`,`${sGrp.length} stores · ${fi(total)} loss entries`,`
-    <div class="metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem;">
-      <div class="metric amber"><div class="lbl">Loss entries</div><div class="val">${fi(total)}</div></div>
-      <div class="metric"><div class="lbl">Stores</div><div class="val">${sGrp.length}</div></div>
-      ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Qty lost</div><div class="val">${fi(totalQty)}</div></div>`:''}
-    </div>
-    ${sortableTbl(
-      ['Store','RM','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],
-      storeRows,
-      null
-    )}`);
-};
-
-// ── MARKET MODAL ──────────────────────────────────────────
 window.showMarketModal=function(market){
   const f=getFilters();
   const filtStores=filterStores(_WK.stores,{...f,market});
@@ -1019,7 +706,6 @@ window.showMarketModal=function(market){
   }).sort((a,b)=>b.w-a.w);
   const tW=storeRows.reduce((s,r)=>s+r.w,0),tB=storeRows.reduce((s,r)=>s+r.b,0),tNB=storeRows.reduce((s,r)=>s+r.nb,0),tLS=storeRows.reduce((s,r)=>s+r.ls,0);
   const af=[f.rm?`RM: ${f.rm}`:'',f.cluster?`Cluster: ${f.cluster}`:'',f.date?fmtDK(f.date):''].filter(Boolean).join(' · ');
-  const rows=storeRows.map(s=>({cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.rm,s.type,fi(s.w),fi(s.b),fi(s.nb),`<span class="badge ${bc(s.cv)}">${s.cv}%</span>`,fi(s.ls),`<span class="badge ${bc(s.lsPct)}">${s.lsPct}%</span>`]}));
   openModal(`${market} — stores`,af,`
     <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
       <div class="metric blue"><div class="lbl">Walkins</div><div class="val">${fi(tW)}</div></div>
@@ -1027,10 +713,59 @@ window.showMarketModal=function(market){
       <div class="metric red"><div class="lbl">Non-buyers</div><div class="val">${fi(tNB)}</div></div>
       <div class="metric amber"><div class="lbl">Loss captured</div><div class="val">${fi(tLS)}</div><div class="sub">${pct(tLS,tNB)}% coverage</div></div>
     </div>
-    ${sortableTbl(['Store','RM','Type','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%'],rows,['Total','','',fi(tW),fi(tB),fi(tNB),`<span class="badge ${bc(pct(tB,tW))}">${pct(tB,tW)}%</span>`,fi(tLS),`<span class="badge ${bc(pct(tLS,tNB))}">${pct(tLS,tNB)}%</span>`])}`);
+    ${sortableTbl(['Store','RM','Type','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%'],storeRows.map(s=>({cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.rm,s.type,fi(s.w),fi(s.b),fi(s.nb),`<span class="badge ${bc(s.cv)}">${s.cv}%</span>`,fi(s.ls),`<span class="badge ${bc(s.lsPct)}">${s.lsPct}%</span>`]})),['Total','','',fi(tW),fi(tB),fi(tNB),`<span class="badge ${bc(pct(tB,tW))}">${pct(tB,tW)}%</span>`,fi(tLS),`<span class="badge ${bc(pct(tLS,tNB))}">${pct(tLS,tNB)}%</span>`])}`);
 };
 
-// ── STORE MODAL ───────────────────────────────────────────
+window.showLSDRMModal=function(rm){
+  const f=getFilters();
+  const rows=filterLS({...f,rm});
+  const{storeIdx,reasonIdx,catIdx,qtyIdx,valIdx}=_LS_IDX;
+  const total=rows.length;
+  const m={};
+  rows.forEach(r=>{const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';if(!m[k])m[k]={c:0,reasons:{},cats:{}};m[k].c++;const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;const cat=catIdx>=0?String(r[catIdx]||''):'';if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;});
+  const sGrp=Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
+  const storeRows=sGrp.map(([k,v])=>{
+    const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+    const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+    const wkStore=_WK.stores.find(s=>s.outlet===k||s.outletNorm===normStore(k));
+    const wkDays=wkStore?(f.date?wkStore.days.filter(d=>d.dk===f.date):wkStore.days):[];
+    const stW=wkDays.reduce((s,d)=>s+d.w,0),stB=wkDays.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
+    return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,wkStore?wkStore.market:'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
+  });
+  openModal(`RM: ${rm} — store detail`,`${sGrp.length} stores · ${fi(total)} loss entries`,`
+    <div class="metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem;">
+      <div class="metric amber"><div class="lbl">Loss entries</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Stores</div><div class="val">${sGrp.length}</div></div>
+      ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Qty lost</div><div class="val">${fi(rows.reduce((s,r)=>s+n(r[qtyIdx]),0))}</div></div>`:''}
+    </div>
+    ${sortableTbl(['Store','Market','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],storeRows,null)}`);
+};
+
+window.showLSDMktModal=function(market){
+  const f=getFilters();
+  const rows=filterLS({...f,market});
+  const{storeIdx,reasonIdx,catIdx,qtyIdx}=_LS_IDX;
+  const total=rows.length;
+  const m={};
+  rows.forEach(r=>{const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';if(!m[k])m[k]={c:0,reasons:{},cats:{}};m[k].c++;const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;const cat=catIdx>=0?String(r[catIdx]||''):'';if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;});
+  const sGrp=Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
+  const storeRows=sGrp.map(([k,v])=>{
+    const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+    const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+    const wkStore=_WK.stores.find(s=>s.outlet===k||s.outletNorm===normStore(k));
+    const wkDays=wkStore?(f.date?wkStore.days.filter(d=>d.dk===f.date):wkStore.days):[];
+    const stW=wkDays.reduce((s,d)=>s+d.w,0),stB=wkDays.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
+    return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,rows.find(r=>String(r[storeIdx]||'')===k)?._rm||'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
+  });
+  openModal(`Market: ${market} — store detail`,`${sGrp.length} stores · ${fi(total)} loss entries`,`
+    <div class="metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem;">
+      <div class="metric amber"><div class="lbl">Loss entries</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Stores</div><div class="val">${sGrp.length}</div></div>
+      ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Qty lost</div><div class="val">${fi(rows.reduce((s,r)=>s+n(r[qtyIdx]),0))}</div></div>`:''}
+    </div>
+    ${sortableTbl(['Store','RM','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],storeRows,null)}`);
+};
+
 window.showStoreModal=function(storeName){
   const f=getFilters();
   const{storeIdx,reasonIdx,catIdx,qtyIdx,valIdx,empIdx}=_LS_IDX;
@@ -1045,12 +780,10 @@ window.showStoreModal=function(storeName){
   const byEmp=grpS(r=>empIdx>=0?r[empIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown');
   const byTime=grpS(r=>r._time).filter(([k])=>k&&k!=='Unknown');
   const validM=rows.filter(r=>r._mob==='valid').length,invL=rows.filter(r=>r._mob==='invalid_length').length,invJ=rows.filter(r=>r._mob==='invalid_junk').length,missM=rows.filter(r=>r._mob==='missing').length;
-  const ts='padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.07);font-size:12px;';
-  const ths='padding:6px 10px;color:#6b6b6b;font-size:11px;font-weight:600;text-transform:uppercase;border-bottom:2px solid rgba(0,0,0,0.09);text-align:left;';
   const mini=(arr,lbl)=>arr.length?`<table style="width:100%;border-collapse:collapse;">
     <thead><tr><th style="${ths}">${lbl}</th><th style="${ths}">Count</th><th style="${ths}">%</th></tr></thead>
-    <tbody>${arr.map(([k,v])=>`<tr><td style="${ts}">${k}</td><td style="${ts}font-weight:600">${fi(v.c)}</td><td style="${ts}">${pct(v.c,total)}%</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td style="${ts}font-weight:600">Total</td><td style="${ts}font-weight:600">${fi(total)}</td><td style="${ts}">100%</td></tr></tfoot>
+    <tbody>${arr.map(([k,v])=>`<tr><td style="${mts}">${k}</td><td style="${mts}font-weight:600">${fi(v.c)}</td><td style="${mts}">${pct(v.c,total)}%</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td style="${mts}font-weight:600">Total</td><td style="${mts}font-weight:600">${fi(total)}</td><td style="${mts}">100%</td></tr></tfoot>
   </table>`:`<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No data</p>`;
   openModal(storeName,wkStore?`${wkStore.market} · ${wkStore.rm} · ${wkStore.type}`:'',`
     <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
@@ -1093,15 +826,18 @@ async function init(){
     const lsRaw=await fetchTab('Loss of sale data APR');
     parseLoss(lsRaw.headers,lsRaw.rows);
     const totalLS=Object.values(_LS_DAY_MAP).reduce((s,v)=>s+v,0);
-    const syncedDays=Object.keys(_LS_DAY_MAP).length;
-    const wkDays=_WK?_WK.days.length:0;
     const lastWkDay=_WK&&_WK.days.length?_WK.days[_WK.days.length-1]:null;
-    const maxWkDay=_WK&&_WK.days.length?Math.max(..._WK.days.map(d=>d.dayNum)):0;
     lsPill.className='pill pill-ok';
-    lsPill.textContent=`Loss of Sale — synced till ${lastWkDay?fmtDK(lastWkDay.dk):'—'} · ${totalLS} entries (${syncedDays} days)`;
+    lsPill.textContent=`Loss of Sale — ${lsRaw.rows.length} total · ${totalLS} synced till ${lastWkDay?fmtDK(lastWkDay.dk):'—'}`;
   }catch(e){lsPill.className='pill pill-err';lsPill.textContent='Loss of Sale — error: '+e.message;}
-  if(_WK&&_LS_ROWS.length){renderGlobalFilterBar();renderAll();}else if(_WK){renderGlobalFilterBar();renderOverview();}
-  // Show last walkins date in topbar
+
+  if(_WK&&_LS_ROWS.length){
+    buildFilterBar();
+    renderAll();
+  }else if(_WK){
+    buildFilterBar();
+    renderOverview();
+  }
   const lastWkDay=_WK&&_WK.days.length?_WK.days[_WK.days.length-1]:null;
   document.getElementById('topbar-meta').textContent=`Apr 2026 · Walkins & Loss synced till ${lastWkDay?fmtDK(lastWkDay.dk):'—'} · Live`;
 }
