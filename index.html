@@ -230,7 +230,7 @@ let _WK=null,_LS_ROWS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={};
 let _lsSyncOn=false; // toggle: false = Loss tab shows ALL data
 
 // ── FILTER STATE — stored in object, not just DOM ─────────
-let _F={date:'',cluster:'',rm:'',market:'',store:'',reason:''};
+let _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:''};
 
 function getFilters(){return{..._F};}
 
@@ -239,11 +239,11 @@ function setFilter(key,val){
   renderAll();
 }
 function resetFilters(){
-  _F={date:'',cluster:'',rm:'',market:'',store:'',reason:''};
-  // Reset DOM selects
-  ['f-date','f-cluster','f-rm','f-market','f-store','f-reason'].forEach(id=>{
+  _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:''};
+  ['f-date-from','f-date-to','f-cluster','f-rm','f-market','f-store','f-reason'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
+  buildFilterBar();
   renderAll();
 }
 
@@ -316,9 +316,20 @@ function parseLoss(headers,rows){
 }
 
 // ── FILTER FUNCTIONS ──────────────────────────────────────
+function dateInRange(dk,f){
+  if(!dk)return false;
+  if(f.dateFrom&&dk<f.dateFrom)return false;
+  if(f.dateTo&&dk>f.dateTo)return false;
+  return true;
+}
+function daysInRange(days,f){
+  if(!f.dateFrom&&!f.dateTo)return days;
+  return days.filter(d=>dateInRange(d.dk,f));
+}
+
 function filterStores(stores,f){
   return stores.filter(s=>
-    (!f.date||s.days.some(d=>d.dk===f.date))&&
+    ((!f.dateFrom&&!f.dateTo)||s.days.some(d=>dateInRange(d.dk,f)))&&
     (!f.rm||s.rm===f.rm)&&(!f.cluster||s.cluster===f.cluster)&&
     (!f.market||s.market===f.market)&&(!f.store||s.outlet===f.store)
   );
@@ -328,10 +339,10 @@ function filterStores(stores,f){
 function filterLS(f){
   const{storeIdx,reasonIdx}=_LS_IDX;
   return _LS_ROWS.filter(r=>{
-    if(!r._syncedDk)return false; // exclude beyond walkins cutoff
+    if(!r._syncedDk)return false;
+    if(!dateInRange(r._syncedDk,f))return false;
     const wkStore=r._wkStore;
     const storeRM=wkStore?wkStore.rm:r._rm;
-    if(f.date&&r._syncedDk!==f.date)return false;
     if(f.rm&&storeRM!==f.rm)return false;
     if(f.cluster&&(!wkStore||wkStore.cluster!==f.cluster))return false;
     if(f.market&&(!wkStore||wkStore.market!==f.market))return false;
@@ -345,12 +356,11 @@ function filterLS(f){
 function filterLSTab(f){
   const{storeIdx,reasonIdx}=_LS_IDX;
   return _LS_ROWS.filter(r=>{
-    // When sync ON: exclude beyond walkins. When OFF: include all
     if(_lsSyncOn&&!r._syncedDk)return false;
     const dk=_lsSyncOn?r._syncedDk:r._dk;
+    if(!dateInRange(dk,f))return false;
     const wkStore=r._wkStore;
     const storeRM=wkStore?wkStore.rm:r._rm;
-    if(f.date&&dk!==f.date)return false;
     if(f.rm&&storeRM!==f.rm)return false;
     if(f.cluster&&(!wkStore||wkStore.cluster!==f.cluster))return false;
     if(f.market&&(!wkStore||wkStore.market!==f.market))return false;
@@ -373,10 +383,15 @@ function buildFilterBar(){
 
   document.getElementById('global-filter-bar').innerHTML=`
     <div class="filter-bar">
-      <label>Date:</label>
-      <select id="f-date" onchange="_F.date=this.value;renderAll()">
-        <option value="">All days</option>
-        ${dks.map(dk=>`<option value="${dk}"${_F.date===dk?' selected':''}>${fmtDK(dk)}</option>`).join('')}
+      <label>From:</label>
+      <select id="f-date-from" onchange="_F.dateFrom=this.value;if(_F.dateTo&&_F.dateTo<_F.dateFrom)_F.dateTo='';buildFilterBar();renderAll()">
+        <option value="">Start</option>
+        ${dks.map(dk=>`<option value="${dk}"${_F.dateFrom===dk?' selected':''}>${fmtDK(dk)}</option>`).join('')}
+      </select>
+      <label>To:</label>
+      <select id="f-date-to" onchange="_F.dateTo=this.value;buildFilterBar();renderAll()">
+        <option value="">End</option>
+        ${dks.filter(dk=>!_F.dateFrom||dk>=_F.dateFrom).map(dk=>`<option value="${dk}"${_F.dateTo===dk?' selected':''}>${fmtDK(dk)}</option>`).join('')}
       </select>
       <label>Cluster:</label>
       <select id="f-cluster" onchange="_F.cluster=this.value;renderAll()">
@@ -417,6 +432,7 @@ function buildFilterBar(){
     <div style="display:flex;align-items:center;gap:16px;padding:8px 14px;background:#e6eefa;border-radius:10px;margin-bottom:1rem;font-size:11px;color:#1a3fa0;flex-wrap:wrap;">
       <span>📅 <strong>Walkins:</strong> ${_WK.days.length?fmtDK(_WK.days[0].dk):'—'} → <strong>${lastWkDay?fmtDK(lastWkDay.dk):'—'}</strong> (${_WK.days.length} days)</span>
       <span style="opacity:.4;">|</span>
+      ${(_F.dateFrom||_F.dateTo)?`<span>🗓️ <strong>Filtered:</strong> ${_F.dateFrom?fmtDK(_F.dateFrom):'Start'} → ${_F.dateTo?fmtDK(_F.dateTo):'End'}</span><span style="opacity:.4;">|</span>`:''}
       <span>🔗 <strong>Loss data in sheet: ${fi(totalLSAll)}</strong> · Synced to walkins: <strong>${fi(totalLSSynced)}</strong>${totalLSAll>totalLSSynced?` · <span style="color:#c47a0f;">${fi(totalLSAll-totalLSSynced)} beyond walkins excluded from Overview/Audit</span>`:''}</span>
     </div>`;
 }
@@ -435,8 +451,8 @@ function renderOverview(){
   const filtLS=filterLS(f);
   const{storeIdx}=_LS_IDX;
 
-  const totalW=filtStores.reduce((s,r)=>s+(f.date?r.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.w,0):r.totalW),0);
-  const totalB=filtStores.reduce((s,r)=>s+(f.date?r.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.b,0):r.totalB),0);
+  const totalW=filtStores.reduce((s,r)=>s+(daysInRange(r.days,f).reduce((a,d)=>a+d.w,0)),0);
+  const totalB=filtStores.reduce((s,r)=>s+(daysInRange(r.days,f).reduce((a,d)=>a+d.b,0)),0);
   const totalNB=totalW-totalB;
   const totalLS=filtLS.length;
   const avgConv=pct(totalB,totalW);
@@ -444,8 +460,8 @@ function renderOverview(){
 
   const mktMap={};
   filtStores.forEach(s=>{
-    const w=f.date?s.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.w,0):s.totalW;
-    const b=f.date?s.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.b,0):s.totalB;
+    const w=daysInRange(s.days,f).reduce((a,d)=>a+d.w,0);
+    const b=daysInRange(s.days,f).reduce((a,d)=>a+d.b,0);
     if(!mktMap[s.market])mktMap[s.market]={w:0,b:0,ls:0};
     mktMap[s.market].w+=w;mktMap[s.market].b+=b;
   });
@@ -454,7 +470,7 @@ function renderOverview(){
 
   const filtDayMap={};
   filtStores.forEach(s=>s.days.forEach(d=>{
-    if(f.date&&d.dk!==f.date)return;
+    if(!dateInRange(d.dk,f))return;
     if(!filtDayMap[d.dk])filtDayMap[d.dk]={dk:d.dk,dayNum:d.dayNum,w:0,b:0,ls:0};
     filtDayMap[d.dk].w+=d.w;filtDayMap[d.dk].b+=d.b;
   }));
@@ -614,8 +630,8 @@ function renderAudit(){
   const{storeIdx,reasonIdx,phoneIdx,subCatIdx,sizeIdx,styleIdx,colorIdx,polishIdx,designIdx,notesIdx}=_LS_IDX;
 
   const storeAudit=filtStores.map(s=>{
-    const w=f.date?s.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.w,0):s.totalW;
-    const b=f.date?s.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.b,0):s.totalB;
+    const w=daysInRange(s.days,f).reduce((a,d)=>a+d.w,0);
+    const b=daysInRange(s.days,f).reduce((a,d)=>a+d.b,0);
     const nb=w-b;
     const lsRows=filtLS.filter(r=>normStore(String(r[storeIdx]||''))===s.outletNorm);
     const ls=lsRows.length;const lsCov=pct(ls,nb);
@@ -698,14 +714,15 @@ window.showMarketModal=function(market){
   const filtLS=filterLS({...f,market});
   const{storeIdx}=_LS_IDX;
   const storeRows=filtStores.map(s=>{
-    const w=f.date?s.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.w,0):s.totalW;
-    const b=f.date?s.days.filter(d=>d.dk===f.date).reduce((a,d)=>a+d.b,0):s.totalB;
+    const w=daysInRange(s.days,f).reduce((a,d)=>a+d.w,0);
+    const b=daysInRange(s.days,f).reduce((a,d)=>a+d.b,0);
     const nb=w-b;const cv=pct(b,w);
     const ls=filtLS.filter(r=>normStore(String(r[storeIdx]||''))===s.outletNorm).length;
     return{...s,w,b,nb,cv,ls,lsPct:pct(ls,nb)};
   }).sort((a,b)=>b.w-a.w);
   const tW=storeRows.reduce((s,r)=>s+r.w,0),tB=storeRows.reduce((s,r)=>s+r.b,0),tNB=storeRows.reduce((s,r)=>s+r.nb,0),tLS=storeRows.reduce((s,r)=>s+r.ls,0);
-  const af=[f.rm?`RM: ${f.rm}`:'',f.cluster?`Cluster: ${f.cluster}`:'',f.date?fmtDK(f.date):''].filter(Boolean).join(' · ');
+  const dateLabel=_F.dateFrom||_F.dateTo?`${_F.dateFrom?fmtDK(_F.dateFrom):'Start'} → ${_F.dateTo?fmtDK(_F.dateTo):'End'}`:'';
+  const af=[f.rm?`RM: ${f.rm}`:'',f.cluster?`Cluster: ${f.cluster}`:'',dateLabel].filter(Boolean).join(' · ');
   openModal(`${market} — stores`,af,`
     <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
       <div class="metric blue"><div class="lbl">Walkins</div><div class="val">${fi(tW)}</div></div>
@@ -728,7 +745,7 @@ window.showLSDRMModal=function(rm){
     const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
     const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
     const wkStore=_WK.stores.find(s=>s.outlet===k||s.outletNorm===normStore(k));
-    const wkDays=wkStore?(f.date?wkStore.days.filter(d=>d.dk===f.date):wkStore.days):[];
+    const wkDays=wkStore?(daysInRange(wkStore.days,f)):[];
     const stW=wkDays.reduce((s,d)=>s+d.w,0),stB=wkDays.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
     return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,wkStore?wkStore.market:'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
   });
@@ -753,7 +770,7 @@ window.showLSDMktModal=function(market){
     const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
     const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
     const wkStore=_WK.stores.find(s=>s.outlet===k||s.outletNorm===normStore(k));
-    const wkDays=wkStore?(f.date?wkStore.days.filter(d=>d.dk===f.date):wkStore.days):[];
+    const wkDays=wkStore?(daysInRange(wkStore.days,f)):[];
     const stW=wkDays.reduce((s,d)=>s+d.w,0),stB=wkDays.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
     return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,rows.find(r=>String(r[storeIdx]||'')===k)?._rm||'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
   });
@@ -772,7 +789,7 @@ window.showStoreModal=function(storeName){
   const rows=filterLS(f).filter(r=>String(r[storeIdx]||'')===storeName||normStore(String(r[storeIdx]||''))===normStore(storeName));
   const total=rows.length;
   const wkStore=_WK.stores.find(s=>s.outlet===storeName||s.outletNorm===normStore(storeName));
-  const days=wkStore?(f.date?wkStore.days.filter(d=>d.dk===f.date):wkStore.days):[];
+  const days=wkStore?(daysInRange(wkStore.days,f)):[];
   const stW=days.reduce((s,d)=>s+d.w,0),stB=days.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
   function grpS(getKey){const m={};rows.forEach(r=>{const k=String(getKey(r)||'Unknown');if(!m[k])m[k]={c:0};m[k].c++;});return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);}
   const byReason=grpS(r=>reasonIdx>=0?r[reasonIdx]:'Unknown');
