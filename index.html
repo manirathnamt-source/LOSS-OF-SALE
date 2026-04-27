@@ -109,11 +109,13 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
     <button class="tab-btn active" onclick="show('ov')">Overview</button>
     <button class="tab-btn" onclick="show('ls')">Loss of Sale</button>
     <button class="tab-btn" onclick="show('lsd')">Loss Detail</button>
+    <button class="tab-btn" onclick="show('cat')">Category Analysis</button>
     <button class="tab-btn" onclick="show('audit')">Audit</button>
   </div>
   <div id="ov" class="pane active"><div class="loading">Loading...</div></div>
   <div id="ls" class="pane"><div class="loading">Loading...</div></div>
   <div id="lsd" class="pane"><div class="loading">Loading...</div></div>
+  <div id="cat" class="pane"><div class="loading">Loading...</div></div>
   <div id="audit" class="pane"><div class="loading">Loading...</div></div>
 </div>
 <div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
@@ -140,11 +142,12 @@ function fmtDK(dk){try{const d=new Date(dk+'T00:00:00');return d.toLocaleDateStr
 
 // ── TAB SWITCHING ─────────────────────────────────────────
 function show(id){
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','audit'][i]===id));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','audit'][i]===id));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   if(id==='audit')renderAudit();
   if(id==='lsd')renderLossDetail();
+  if(id==='cat')renderCatAnalysis();
 }
 function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
 function openModal(title,sub,html){
@@ -441,6 +444,7 @@ function renderAll(){
   renderOverview();
   renderLoss();
   if(document.getElementById('lsd').classList.contains('active'))renderLossDetail();
+  if(document.getElementById('cat').classList.contains('active'))renderCatAnalysis();
   if(document.getElementById('audit').classList.contains('active'))renderAudit();
 }
 
@@ -622,6 +626,328 @@ function renderLossDetail(){
     </div>`;
 }
 
+// ── CATEGORY ANALYSIS TAB ────────────────────────────────
+function renderCatAnalysis(){
+  const f=getFilters();
+  const rows=filterLS(f);
+  const total=rows.length;
+  const{catIdx,reasonIdx,storeIdx,sizeIdx,styleIdx,subCatIdx,colorIdx,polishIdx,designIdx,notesIdx}=_LS_IDX;
+
+  if(!total){
+    document.getElementById('cat').innerHTML=`<div class="err-card">No loss of sale data for the selected filters.</div>`;
+    return;
+  }
+
+  // ── GROUP HELPERS ─────────────────────────────────────────
+  function grp(rows,getKey){
+    const m={};
+    rows.forEach(r=>{
+      const k=String(getKey(r)||'Unknown');
+      if(!m[k])m[k]={c:0,stores:new Set(),reasons:{},sizes:{},styles:{},cats:{}};
+      m[k].c++;
+      const store=storeIdx>=0?String(r[storeIdx]||''):'';
+      if(store)m[k].stores.add(store);
+      const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';
+      if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;
+      const size=sizeIdx>=0?String(r[sizeIdx]||''):'';
+      if(size)m[k].sizes[size]=(m[k].sizes[size]||0)+1;
+      const style=styleIdx>=0?String(r[styleIdx]||''):'';
+      if(style)m[k].styles[style]=(m[k].styles[style]||0)+1;
+      const cat=catIdx>=0?String(r[catIdx]||''):'';
+      if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;
+    });
+    return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
+  }
+
+  function topN(obj,n){return Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,n).map(([k,v])=>`${k}(${v})`).join(', ');}
+
+  // ── MARKET → CATEGORY BREAKDOWN ──────────────────────────
+  const markets=[...new Set(rows.map(r=>r._wkStore?r._wkStore.market:'Unknown').filter(Boolean))].sort();
+
+  // Overall category summary
+  const catGrp=grp(rows,r=>catIdx>=0?r[catIdx]:'Unknown');
+  const reasonGrp=grp(rows,r=>reasonIdx>=0?r[reasonIdx]:'Unknown');
+  const sizeGrp=grp(rows,r=>sizeIdx>=0?r[sizeIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown'&&k!=='-');
+  const styleGrp=grp(rows,r=>styleIdx>=0?r[styleIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown'&&k!=='-');
+  const subCatGrp=grp(rows,r=>subCatIdx>=0?r[subCatIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown'&&k!=='-');
+
+  // Market wise category matrix
+  const mktCatMap={};
+  rows.forEach(r=>{
+    const mkt=r._wkStore?r._wkStore.market:'Unknown';
+    const cat=catIdx>=0?String(r[catIdx]||'Unknown'):'Unknown';
+    const reason=reasonIdx>=0?String(r[reasonIdx]||'Unknown'):'Unknown';
+    const size=sizeIdx>=0?String(r[sizeIdx]||''):'';
+    if(!mktCatMap[mkt])mktCatMap[mkt]={total:0,cats:{},reasons:{},sizes:{}};
+    mktCatMap[mkt].total++;
+    mktCatMap[mkt].cats[cat]=(mktCatMap[mkt].cats[cat]||0)+1;
+    mktCatMap[mkt].reasons[reason]=(mktCatMap[mkt].reasons[reason]||0)+1;
+    if(size)mktCatMap[mkt].sizes[size]=(mktCatMap[mkt].sizes[size]||0)+1;
+  });
+  const mktArr=Object.entries(mktCatMap).sort((a,b)=>b[1].total-a[1].total);
+
+  // Category × Reason cross table
+  const allCats=[...new Set(rows.map(r=>catIdx>=0?String(r[catIdx]||'Unknown'):'Unknown'))].filter(c=>c!=='Unknown').sort();
+  const allReasons=[...new Set(rows.map(r=>reasonIdx>=0?String(r[reasonIdx]||'Unknown'):'Unknown'))].filter(r=>r!=='Unknown').sort();
+  const crossMap={};
+  rows.forEach(r=>{
+    const cat=catIdx>=0?String(r[catIdx]||'Unknown'):'Unknown';
+    const reason=reasonIdx>=0?String(r[reasonIdx]||'Unknown'):'Unknown';
+    if(!crossMap[cat])crossMap[cat]={};
+    crossMap[cat][reason]=(crossMap[cat][reason]||0)+1;
+  });
+
+  const prAlert=sh=>sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Medium</span>':'<span class="badge badge-green">Low</span>';
+  const stAlert=sh=>sh>=10?'<span class="badge badge-red">High</span>':sh>=5?'<span class="badge badge-amber">Watch</span>':'<span class="badge badge-green">OK</span>';
+
+  document.getElementById('cat').innerHTML=`
+    <div class="metrics">
+      <div class="metric"><div class="lbl">Total loss entries</div><div class="val">${fi(total)}</div><div class="sub">filtered</div></div>
+      <div class="metric red"><div class="lbl">Categories affected</div><div class="val">${catGrp.length}</div></div>
+      <div class="metric amber"><div class="lbl">Unique reasons</div><div class="val">${reasonGrp.length}</div></div>
+      <div class="metric"><div class="lbl">Markets affected</div><div class="val">${mktArr.length}</div></div>
+    </div>
+
+    <!-- MARKET × CATEGORY TABLE -->
+    <div class="card">
+      <div class="card-title">Market-wise category impact — click market for drill-down</div>
+      ${sortableTbl(
+        ['Market','Total loss','Top category','Top category%','Top reason','Top reason%','Top size'],
+        mktArr.map(([mkt,v])=>{
+          const topCat=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+          const topReason=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+          const topSize=Object.entries(v.sizes).sort((a,b)=>b[1]-a[1])[0];
+          return{cells:[
+            `<span class="clickable" onclick="showCatMarketModal('${mkt.replace(/'/g,"\\'")}')">${mkt}</span>`,
+            fi(v.total),
+            topCat?topCat[0]:'—',
+            topCat?`<span class="badge ${topCat[1]/v.total>=.3?'badge-red':topCat[1]/v.total>=.15?'badge-amber':'badge-green'}">${pct(topCat[1],v.total)}%</span>`:'—',
+            topReason?topReason[0]:'—',
+            topReason?`<span class="badge ${topReason[1]/v.total>=.3?'badge-red':topReason[1]/v.total>=.15?'badge-amber':'badge-green'}">${pct(topReason[1],v.total)}%</span>`:'—',
+            topSize?`${topSize[0]} (${topSize[1]})`:'—'
+          ]};
+        }),
+        ['Total',fi(total),'','','','','']
+      )}
+    </div>
+
+    <!-- CATEGORY SUMMARY -->
+    <div class="card">
+      <div class="card-title">Overall loss by category — click for market breakdown</div>
+      ${sortableTbl(
+        ['Category','Count','Stores affected','Top reason','Top size','Top style','Share%','Alert'],
+        catGrp.map(([k,v])=>{
+          const sh=pct(v.c,total);
+          const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+          const topSz=Object.entries(v.sizes).sort((a,b)=>b[1]-a[1])[0];
+          const topSt=Object.entries(v.styles).sort((a,b)=>b[1]-a[1])[0];
+          return{cells:[
+            `<span class="clickable" onclick="showCatDetailModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+            fi(v.c),fi(v.stores.size),
+            topR?topR[0]:'—',
+            topSz?`${topSz[0]}(${topSz[1]})`:'—',
+            topSt?`${topSt[0]}(${topSt[1]})`:'—',
+            `${sh}%`,prAlert(sh)
+          ]};
+        }),
+        ['Total',fi(total),'','','','','100%','']
+      )}
+    </div>
+
+    <!-- REASON SUMMARY -->
+    <div class="card">
+      <div class="card-title">Overall loss by reason — why customers are not buying</div>
+      ${sortableTbl(
+        ['Reason','Count','Stores affected','Top category','Top size','Share%','Alert'],
+        reasonGrp.map(([k,v])=>{
+          const sh=pct(v.c,total);
+          const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+          const topSz=Object.entries(v.sizes).sort((a,b)=>b[1]-a[1])[0];
+          return{cells:[
+            k,fi(v.c),fi(v.stores.size),
+            topC?topC[0]:'—',
+            topSz?`${topSz[0]}(${topSz[1]})`:'—',
+            `${sh}%`,prAlert(sh)
+          ]};
+        }),
+        ['Total',fi(total),'','','','100%','']
+      )}
+    </div>
+
+    <!-- SIZE ANALYSIS -->
+    ${sizeGrp.length?`<div class="card">
+      <div class="card-title">Size-wise loss analysis</div>
+      ${sortableTbl(
+        ['Size','Count','Top category','Top reason','Share%','Alert'],
+        sizeGrp.map(([k,v])=>{
+          const sh=pct(v.c,total);
+          const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+          const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+          return{cells:[k,fi(v.c),topC?topC[0]:'—',topR?topR[0]:'—',`${sh}%`,prAlert(sh)]};
+        }),
+        ['Total',fi(total),'','','100%','']
+      )}
+    </div>`:''}
+
+    <!-- STYLE ANALYSIS -->
+    ${styleGrp.length?`<div class="card">
+      <div class="card-title">Style-wise loss analysis</div>
+      ${sortableTbl(
+        ['Style','Count','Top category','Top reason','Share%','Alert'],
+        styleGrp.map(([k,v])=>{
+          const sh=pct(v.c,total);
+          const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+          const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+          return{cells:[k,fi(v.c),topC?topC[0]:'—',topR?topR[0]:'—',`${sh}%`,prAlert(sh)]};
+        }),
+        ['Total',fi(total),'','','100%','']
+      )}
+    </div>`:''}
+
+    <!-- SUB CATEGORY ANALYSIS -->
+    ${subCatGrp.length?`<div class="card">
+      <div class="card-title">Product sub-category loss analysis</div>
+      ${sortableTbl(
+        ['Sub Category','Count','Top reason','Top size','Share%','Alert'],
+        subCatGrp.map(([k,v])=>{
+          const sh=pct(v.c,total);
+          const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+          const topSz=Object.entries(v.sizes).sort((a,b)=>b[1]-a[1])[0];
+          return{cells:[k,fi(v.c),topR?topR[0]:'—',topSz?`${topSz[0]}(${topSz[1]})`:'—',`${sh}%`,prAlert(sh)]};
+        }),
+        ['Total',fi(total),'','','100%','']
+      )}
+    </div>`:''}
+
+    <!-- CATEGORY × REASON CROSS TABLE -->
+    <div class="card">
+      <div class="card-title">Category × Reason cross analysis — how many of each reason per category</div>
+      <div class="tw"><table id="cross-tbl">
+        <thead><tr>
+          <th>Category</th>
+          ${allReasons.slice(0,8).map(r=>`<th style="max-width:100px;white-space:normal;font-size:10px;">${r}</th>`).join('')}
+          <th>Total</th>
+        </tr></thead>
+        <tbody>${allCats.map(cat=>{
+          const catTotal=crossMap[cat]?Object.values(crossMap[cat]).reduce((s,v)=>s+v,0):0;
+          return`<tr>
+            <td><strong>${cat}</strong></td>
+            ${allReasons.slice(0,8).map(reason=>{
+              const v=crossMap[cat]?crossMap[cat][reason]||0:0;
+              const sh=pct(v,catTotal);
+              return`<td>${v>0?`<span style="font-weight:600;color:${sh>=30?'var(--red)':sh>=15?'var(--amber)':'var(--text)'}">${v}</span><span style="font-size:10px;color:var(--muted);"> (${sh}%)</span>`:'—'}</td>`;
+            }).join('')}
+            <td><strong>${fi(catTotal)}</strong></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </div>`;
+  setTimeout(()=>makeSortable('cross-tbl'),50);
+}
+
+// ── CATEGORY MARKET DRILL-DOWN MODAL ─────────────────────
+window.showCatMarketModal=function(market){
+  const f=getFilters();
+  const rows=filterLS({...f,market});
+  const total=rows.length;
+  const{catIdx,reasonIdx,sizeIdx,styleIdx,storeIdx,subCatIdx}=_LS_IDX;
+
+  function grpLocal(getKey){
+    const m={};
+    rows.forEach(r=>{const k=String(getKey(r)||'Unknown');if(!m[k])m[k]={c:0,stores:new Set()};m[k].c++;if(storeIdx>=0)m[k].stores.add(String(r[storeIdx]||''));});
+    return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
+  }
+  const catRows=grpLocal(r=>catIdx>=0?r[catIdx]:'Unknown');
+  const reasonRows=grpLocal(r=>reasonIdx>=0?r[reasonIdx]:'Unknown');
+  const sizeRows=grpLocal(r=>sizeIdx>=0?r[sizeIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown'&&k!=='-');
+  const styleRows=grpLocal(r=>styleIdx>=0?r[styleIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown'&&k!=='-');
+  const subCatRows=grpLocal(r=>subCatIdx>=0?r[subCatIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown'&&k!=='-');
+
+  const prAlert=sh=>sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Medium</span>':'<span class="badge badge-green">Low</span>';
+
+  openModal(`${market} — Category & Reason Analysis`,`${fi(total)} loss entries`,`
+    <div class="metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem;">
+      <div class="metric amber"><div class="lbl">Total loss</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Categories</div><div class="val">${catRows.length}</div></div>
+      <div class="metric"><div class="lbl">Reasons</div><div class="val">${reasonRows.length}</div></div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="section-lbl">Loss by category</div>
+        ${sortableTbl(['Category','Count','Stores','Share%','Alert'],catRows.map(([k,v])=>{const sh=pct(v.c,total);return{cells:[k,fi(v.c),fi(v.stores.size),`${sh}%`,prAlert(sh)]};}))}
+      </div>
+      <div>
+        <div class="section-lbl">Loss by reason</div>
+        ${sortableTbl(['Reason','Count','Stores','Share%','Alert'],reasonRows.map(([k,v])=>{const sh=pct(v.c,total);return{cells:[k,fi(v.c),fi(v.stores.size),`${sh}%`,prAlert(sh)]};}))}
+      </div>
+    </div>
+    ${sizeRows.length?`<div class="two-col">
+      <div>
+        <div class="section-lbl">Loss by size</div>
+        ${sortableTbl(['Size','Count','Share%'],sizeRows.map(([k,v])=>({cells:[k,fi(v.c),`${pct(v.c,total)}%`]})))}
+      </div>
+      <div>
+        <div class="section-lbl">Loss by style</div>
+        ${styleRows.length?sortableTbl(['Style','Count','Share%'],styleRows.map(([k,v])=>({cells:[k,fi(v.c),`${pct(v.c,total)}%`]}))):'<p style="color:var(--muted);font-size:12px;">No style data.</p>'}
+      </div>
+    </div>`:''}
+    ${subCatRows.length?`<div class="section-lbl">Loss by sub-category</div>
+      ${sortableTbl(['Sub Category','Count','Share%'],subCatRows.map(([k,v])=>({cells:[k,fi(v.c),`${pct(v.c,total)}%`]})))}
+    `:''}
+  `);
+};
+
+// ── CATEGORY DETAIL MODAL ─────────────────────────────────
+window.showCatDetailModal=function(category){
+  const f=getFilters();
+  const{catIdx,reasonIdx,sizeIdx,styleIdx,storeIdx,subCatIdx,mktIdx}=_LS_IDX;
+  const rows=filterLS(f).filter(r=>catIdx>=0&&String(r[catIdx]||'')=== category);
+  const total=rows.length;
+
+  function grpLocal(getKey){
+    const m={};
+    rows.forEach(r=>{const k=String(getKey(r)||'Unknown');if(!m[k])m[k]={c:0};m[k].c++;});
+    return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
+  }
+  const reasonRows=grpLocal(r=>reasonIdx>=0?r[reasonIdx]:'Unknown');
+  const sizeRows=grpLocal(r=>sizeIdx>=0?r[sizeIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown'&&k!=='-');
+  const styleRows=grpLocal(r=>styleIdx>=0?r[styleIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown'&&k!=='-');
+  const storeRows=grpLocal(r=>storeIdx>=0?r[storeIdx]:'Unknown');
+  const mktRows=grpLocal(r=>r._wkStore?r._wkStore.market:'Unknown');
+  const subCatRows=grpLocal(r=>subCatIdx>=0?r[subCatIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown'&&k!=='-');
+
+  const prAlert=sh=>sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Medium</span>':'<span class="badge badge-green">Low</span>';
+
+  openModal(`Category: ${category}`,`${fi(total)} loss entries across ${mktRows.length} markets`,`
+    <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric amber"><div class="lbl">Total loss</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Markets</div><div class="val">${mktRows.length}</div></div>
+      <div class="metric"><div class="lbl">Stores</div><div class="val">${storeRows.length}</div></div>
+      <div class="metric"><div class="lbl">Reasons</div><div class="val">${reasonRows.length}</div></div>
+    </div>
+    <div class="two-col">
+      <div><div class="section-lbl">By reason (why not buying)</div>
+        ${sortableTbl(['Reason','Count','Share%','Alert'],reasonRows.map(([k,v])=>{const sh=pct(v.c,total);return{cells:[k,fi(v.c),`${sh}%`,prAlert(sh)]};}))}
+      </div>
+      <div><div class="section-lbl">By market</div>
+        ${sortableTbl(['Market','Count','Share%'],mktRows.map(([k,v])=>({cells:[k,fi(v.c),`${pct(v.c,total)}%`]})))}
+      </div>
+    </div>
+    <div class="two-col">
+      ${sizeRows.length?`<div><div class="section-lbl">By size</div>
+        ${sortableTbl(['Size','Count','Share%'],sizeRows.map(([k,v])=>({cells:[k,fi(v.c),`${pct(v.c,total)}%`]})))}
+      </div>`:'<div></div>'}
+      ${styleRows.length?`<div><div class="section-lbl">By style</div>
+        ${sortableTbl(['Style','Count','Share%'],styleRows.map(([k,v])=>({cells:[k,fi(v.c),`${pct(v.c,total)}%`]})))}
+      </div>`:'<div></div>'}
+    </div>
+    ${subCatRows.length?`<div class="section-lbl">By sub-category</div>
+      ${sortableTbl(['Sub Category','Count','Share%'],subCatRows.map(([k,v])=>({cells:[k,fi(v.c),`${pct(v.c,total)}%`]})))}`:''}
+    <div class="section-lbl" style="margin-top:1rem;">By store (top 20)</div>
+    ${sortableTbl(['Store','Count','Share%'],storeRows.slice(0,20).map(([k,v])=>({cells:[k,fi(v.c),`${pct(v.c,total)}%`]})))}
+  `);
+};
+
 // ── AUDIT TAB ─────────────────────────────────────────────
 function renderAudit(){
   const f=getFilters();
@@ -708,6 +1034,38 @@ window.selectAudit=function(key){
 const mts='padding:6px 10px;border-bottom:1px solid rgba(0,0,0,0.07);font-size:12px;';
 const ths='padding:6px 10px;color:#6b6b6b;font-size:11px;font-weight:600;text-transform:uppercase;border-bottom:2px solid rgba(0,0,0,0.09);text-align:left;';
 
+// ── DAY-WISE LOSS TABLE HELPER ────────────────────────────
+function dayWiseLSTable(lsRows,wkDayMap){
+  // lsRows = filtered loss rows, wkDayMap = {dk: {w,b}} from walkins
+  const dayLS={};
+  lsRows.forEach(r=>{if(r._syncedDk){if(!dayLS[r._syncedDk])dayLS[r._syncedDk]=0;dayLS[r._syncedDk]++;}});
+  const allDks=[...new Set([...Object.keys(wkDayMap||{}),...Object.keys(dayLS)])].sort();
+  if(!allDks.length)return'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No day-wise data.</p>';
+  const total=lsRows.length;
+  const rows=allDks.map(dk=>{
+    const ls=dayLS[dk]||0;
+    const wk=wkDayMap?wkDayMap[dk]:null;
+    const nb=wk?wk.w-wk.b:0;
+    const cov=pct(ls,nb);
+    return{cells:[`<strong>${fmtDK(dk)}</strong>`,wk?fi(wk.w):'—',wk?fi(wk.b):'—',wk?fi(nb):'—',fi(ls),`${pct(ls,total)}%`,nb>0?`<span class="badge ${bc(cov)}">${cov}%</span>`:'—']};
+  });
+  const totLS=Object.values(dayLS).reduce((s,v)=>s+v,0);
+  const totW=wkDayMap?Object.values(wkDayMap).reduce((s,v)=>s+v.w,0):0;
+  const totB=wkDayMap?Object.values(wkDayMap).reduce((s,v)=>s+v.b,0):0;
+  const totNB=totW-totB;
+  return sortableTbl(['Date','Walkins','Bills','Non-buyers','Loss captured','Share%','Coverage%'],rows,['Total',fi(totW),fi(totB),fi(totNB),fi(totLS),'100%',`<span class="badge ${bc(pct(totLS,totNB))}">${pct(totLS,totNB)}%</span>`]);
+}
+
+// Build wkDayMap from a list of walkins store objects
+function buildWkDayMap(wkStores,f){
+  const m={};
+  wkStores.forEach(s=>daysInRange(s.days,f).forEach(d=>{
+    if(!m[d.dk])m[d.dk]={w:0,b:0};
+    m[d.dk].w+=d.w;m[d.dk].b+=d.b;
+  }));
+  return m;
+}
+
 window.showMarketModal=function(market){
   const f=getFilters();
   const filtStores=filterStores(_WK.stores,{...f,market});
@@ -723,6 +1081,7 @@ window.showMarketModal=function(market){
   const tW=storeRows.reduce((s,r)=>s+r.w,0),tB=storeRows.reduce((s,r)=>s+r.b,0),tNB=storeRows.reduce((s,r)=>s+r.nb,0),tLS=storeRows.reduce((s,r)=>s+r.ls,0);
   const dateLabel=_F.dateFrom||_F.dateTo?`${_F.dateFrom?fmtDK(_F.dateFrom):'Start'} → ${_F.dateTo?fmtDK(_F.dateTo):'End'}`:'';
   const af=[f.rm?`RM: ${f.rm}`:'',f.cluster?`Cluster: ${f.cluster}`:'',dateLabel].filter(Boolean).join(' · ');
+  const wkDayMap=buildWkDayMap(filtStores,f);
   openModal(`${market} — stores`,af,`
     <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
       <div class="metric blue"><div class="lbl">Walkins</div><div class="val">${fi(tW)}</div></div>
@@ -730,7 +1089,10 @@ window.showMarketModal=function(market){
       <div class="metric red"><div class="lbl">Non-buyers</div><div class="val">${fi(tNB)}</div></div>
       <div class="metric amber"><div class="lbl">Loss captured</div><div class="val">${fi(tLS)}</div><div class="sub">${pct(tLS,tNB)}% coverage</div></div>
     </div>
-    ${sortableTbl(['Store','RM','Type','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%'],storeRows.map(s=>({cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.rm,s.type,fi(s.w),fi(s.b),fi(s.nb),`<span class="badge ${bc(s.cv)}">${s.cv}%</span>`,fi(s.ls),`<span class="badge ${bc(s.lsPct)}">${s.lsPct}%</span>`]})),['Total','','',fi(tW),fi(tB),fi(tNB),`<span class="badge ${bc(pct(tB,tW))}">${pct(tB,tW)}%</span>`,fi(tLS),`<span class="badge ${bc(pct(tLS,tNB))}">${pct(tLS,tNB)}%</span>`])}`);
+    <div class="section-lbl">Store-wise detail</div>
+    ${sortableTbl(['Store','RM','Type','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%'],storeRows.map(s=>({cells:[`<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,s.rm,s.type,fi(s.w),fi(s.b),fi(s.nb),`<span class="badge ${bc(s.cv)}">${s.cv}%</span>`,fi(s.ls),`<span class="badge ${bc(s.lsPct)}">${s.lsPct}%</span>`]})),['Total','','',fi(tW),fi(tB),fi(tNB),`<span class="badge ${bc(pct(tB,tW))}">${pct(tB,tW)}%</span>`,fi(tLS),`<span class="badge ${bc(pct(tLS,tNB))}">${pct(tLS,tNB)}%</span>`])}
+    <div class="section-lbl" style="margin-top:1.25rem;">Day-wise loss captured</div>
+    ${dayWiseLSTable(filtLS,wkDayMap)}`);
 };
 
 window.showLSDRMModal=function(rm){
@@ -741,6 +1103,8 @@ window.showLSDRMModal=function(rm){
   const m={};
   rows.forEach(r=>{const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';if(!m[k])m[k]={c:0,reasons:{},cats:{}};m[k].c++;const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;const cat=catIdx>=0?String(r[catIdx]||''):'';if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;});
   const sGrp=Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
+  const rmStores=_WK.stores.filter(s=>s.rm===rm);
+  const wkDayMap=buildWkDayMap(filterStores(rmStores,f),f);
   const storeRows=sGrp.map(([k,v])=>{
     const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
     const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
@@ -755,7 +1119,10 @@ window.showLSDRMModal=function(rm){
       <div class="metric"><div class="lbl">Stores</div><div class="val">${sGrp.length}</div></div>
       ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Qty lost</div><div class="val">${fi(rows.reduce((s,r)=>s+n(r[qtyIdx]),0))}</div></div>`:''}
     </div>
-    ${sortableTbl(['Store','Market','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],storeRows,null)}`);
+    <div class="section-lbl">Store-wise detail</div>
+    ${sortableTbl(['Store','Market','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],storeRows,null)}
+    <div class="section-lbl" style="margin-top:1.25rem;">Day-wise loss captured</div>
+    ${dayWiseLSTable(rows,wkDayMap)}`);
 };
 
 window.showLSDMktModal=function(market){
@@ -766,6 +1133,8 @@ window.showLSDMktModal=function(market){
   const m={};
   rows.forEach(r=>{const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';if(!m[k])m[k]={c:0,reasons:{},cats:{}};m[k].c++;const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;const cat=catIdx>=0?String(r[catIdx]||''):'';if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;});
   const sGrp=Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
+  const mktStores=filterStores(_WK.stores,{...f,market});
+  const wkDayMap=buildWkDayMap(mktStores,f);
   const storeRows=sGrp.map(([k,v])=>{
     const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
     const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
@@ -780,7 +1149,10 @@ window.showLSDMktModal=function(market){
       <div class="metric"><div class="lbl">Stores</div><div class="val">${sGrp.length}</div></div>
       ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Qty lost</div><div class="val">${fi(rows.reduce((s,r)=>s+n(r[qtyIdx]),0))}</div></div>`:''}
     </div>
-    ${sortableTbl(['Store','RM','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],storeRows,null)}`);
+    <div class="section-lbl">Store-wise detail</div>
+    ${sortableTbl(['Store','RM','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],storeRows,null)}
+    <div class="section-lbl" style="margin-top:1.25rem;">Day-wise loss captured</div>
+    ${dayWiseLSTable(rows,wkDayMap)}`);
 };
 
 window.showStoreModal=function(storeName){
@@ -791,6 +1163,9 @@ window.showStoreModal=function(storeName){
   const wkStore=_WK.stores.find(s=>s.outlet===storeName||s.outletNorm===normStore(storeName));
   const days=wkStore?(daysInRange(wkStore.days,f)):[];
   const stW=days.reduce((s,d)=>s+d.w,0),stB=days.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
+  // Build day map for this store
+  const storeWkDayMap={};
+  days.forEach(d=>{storeWkDayMap[d.dk]={w:d.w,b:d.b};});
   function grpS(getKey){const m={};rows.forEach(r=>{const k=String(getKey(r)||'Unknown');if(!m[k])m[k]={c:0};m[k].c++;});return Object.entries(m).sort((a,b)=>b[1].c-a[1].c);}
   const byReason=grpS(r=>reasonIdx>=0?r[reasonIdx]:'Unknown');
   const byCat=grpS(r=>catIdx>=0?r[catIdx]:'Unknown');
@@ -818,7 +1193,9 @@ window.showStoreModal=function(storeName){
         <div><strong style="color:var(--amber)">${fi(missM)}</strong> missing</div>
       </div>
     </div>
-    <div class="two-col">
+    <div class="section-lbl">Day-wise loss captured</div>
+    ${dayWiseLSTable(rows,storeWkDayMap)}
+    <div class="two-col" style="margin-top:1rem;">
       <div><div class="section-lbl">Loss by reason</div>${mini(byReason,'Reason')}</div>
       <div><div class="section-lbl">Loss by category</div>${mini(byCat,'Category')}</div>
     </div>
