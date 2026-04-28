@@ -559,8 +559,8 @@ function renderLoss(){
     <div class="card"><div class="card-title">Day-wise loss entries</div>
       ${sortableTbl(['Date','Count','Share%'],dayArr.map(([dk,c])=>({cells:[`<strong>${fmtDK(dk)}</strong>`,fi(c),`${pct(c,total)}%`]})),['Total',fi(total),'100%'])}
     </div>
-    <div class="card"><div class="card-title">Loss by reason</div>${sortableTbl(mkHdr('Reason'),mkRows(rGrp,prAlert,null),mkFtr())}</div>
-    <div class="card"><div class="card-title">Loss by category</div>${sortableTbl(mkHdr('Category'),mkRows(cGrp,prAlert,null),mkFtr())}</div>
+    <div class="card"><div class="card-title">Loss by reason — click reason to see store breakdown</div>${sortableTbl(mkHdr('Reason'),mkRows(rGrp,prAlert,k=>`showReasonModal('${k.replace(/'/g,"\\'")}')`),mkFtr())}</div>
+    <div class="card"><div class="card-title">Loss by category — click category to see store breakdown</div>${sortableTbl(mkHdr('Category'),mkRows(cGrp,prAlert,k=>`showCategoryModal('${k.replace(/'/g,"\\'")}')`),mkFtr())}</div>
     <div class="card"><div class="card-title">Loss by store — click store name for detailed report</div>
       ${sortableTbl(mkHdr('Store'),mkRows(sGrp,stAlert,k=>`showStoreModal('${k.replace(/'/g,"\\'")}')`),mkFtr())}
     </div>
@@ -1065,6 +1065,155 @@ function buildWkDayMap(wkStores,f){
   }));
   return m;
 }
+
+// ── REASON MODAL → store list ─────────────────────────────
+window.showReasonModal=function(reason){
+  const f=getFilters();
+  const{storeIdx,catIdx,reasonIdx,qtyIdx}=_LS_IDX;
+  const rows=filterLS(f).filter(r=>reasonIdx>=0&&String(r[reasonIdx]||'')===reason);
+  const total=rows.length;
+
+  // Group by store
+  const storeMap={};
+  rows.forEach(r=>{
+    const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
+    const cat=catIdx>=0?String(r[catIdx]||''):'';
+    if(!storeMap[store])storeMap[store]={c:0,cats:{},rm:'—',market:'—'};
+    storeMap[store].c++;
+    if(cat)storeMap[store].cats[cat]=(storeMap[store].cats[cat]||0)+1;
+    const wkStore=r._wkStore;
+    if(wkStore){storeMap[store].rm=wkStore.rm;storeMap[store].market=wkStore.market;}
+  });
+  const storeArr=Object.entries(storeMap).sort((a,b)=>b[1].c-a[1].c);
+
+  // Group by market
+  const mktMap={};
+  rows.forEach(r=>{
+    const mkt=r._wkStore?r._wkStore.market:'Unknown';
+    if(!mktMap[mkt])mktMap[mkt]=0;mktMap[mkt]++;
+  });
+  const mktArr=Object.entries(mktMap).sort((a,b)=>b[1]-a[1]);
+
+  const storeRows=storeArr.map(([k,v])=>{
+    const topCat=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+    return{cells:[
+      `<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      v.market,v.rm,fi(v.c),`${pct(v.c,total)}%`,
+      topCat?topCat[0]:'—'
+    ]};
+  });
+
+  openModal(`Reason: ${reason}`,`${fi(total)} entries across ${storeArr.length} stores · ${mktArr.length} markets`,`
+    <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric amber"><div class="lbl">Total entries</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Stores affected</div><div class="val">${storeArr.length}</div></div>
+      <div class="metric"><div class="lbl">Markets affected</div><div class="val">${mktArr.length}</div></div>
+      <div class="metric"><div class="lbl">% of total loss</div><div class="val">${pct(total,filterLS(f).length)}%</div></div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="section-lbl">By market</div>
+        ${sortableTbl(['Market','Count','Share%'],
+          mktArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+          ['Total',fi(total),'100%']
+        )}
+      </div>
+      <div>
+        <div class="section-lbl">Top categories for this reason</div>
+        ${(()=>{const cm={};rows.forEach(r=>{const c=catIdx>=0?String(r[catIdx]||'Unknown'):'Unknown';cm[c]=(cm[c]||0)+1;});
+          return sortableTbl(['Category','Count','Share%'],
+            Object.entries(cm).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+            ['Total',fi(total),'100%']);})()}
+      </div>
+    </div>
+    <div class="section-lbl">Store-wise breakdown — click store for full detail</div>
+    ${sortableTbl(
+      ['Store','Market','RM','Count','Share%','Top category'],
+      storeRows,
+      ['Total','','',fi(total),'100%','']
+    )}`);
+};
+
+// ── CATEGORY MODAL → store list ───────────────────────────
+window.showCategoryModal=function(category){
+  const f=getFilters();
+  const{storeIdx,catIdx,reasonIdx,sizeIdx,styleIdx,qtyIdx}=_LS_IDX;
+  const rows=filterLS(f).filter(r=>catIdx>=0&&String(r[catIdx]||'')===category);
+  const total=rows.length;
+
+  // Group by store
+  const storeMap={};
+  rows.forEach(r=>{
+    const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
+    const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';
+    if(!storeMap[store])storeMap[store]={c:0,reasons:{},rm:'—',market:'—'};
+    storeMap[store].c++;
+    if(reason)storeMap[store].reasons[reason]=(storeMap[store].reasons[reason]||0)+1;
+    const wkStore=r._wkStore;
+    if(wkStore){storeMap[store].rm=wkStore.rm;storeMap[store].market=wkStore.market;}
+  });
+  const storeArr=Object.entries(storeMap).sort((a,b)=>b[1].c-a[1].c);
+
+  // Group by market
+  const mktMap={};
+  rows.forEach(r=>{const mkt=r._wkStore?r._wkStore.market:'Unknown';if(!mktMap[mkt])mktMap[mkt]=0;mktMap[mkt]++;});
+  const mktArr=Object.entries(mktMap).sort((a,b)=>b[1]-a[1]);
+
+  // Group by reason
+  const reasonMap={};
+  rows.forEach(r=>{const rk=reasonIdx>=0?String(r[reasonIdx]||'Unknown'):'Unknown';if(!reasonMap[rk])reasonMap[rk]=0;reasonMap[rk]++;});
+  const reasonArr=Object.entries(reasonMap).sort((a,b)=>b[1]-a[1]);
+
+  // Group by size
+  const sizeMap={};
+  rows.forEach(r=>{const sk=sizeIdx>=0?String(r[sizeIdx]||''):'';if(sk&&sk!=='-'){if(!sizeMap[sk])sizeMap[sk]=0;sizeMap[sk]++;}});
+  const sizeArr=Object.entries(sizeMap).sort((a,b)=>b[1]-a[1]);
+
+  const storeRows=storeArr.map(([k,v])=>{
+    const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+    return{cells:[
+      `<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      v.market,v.rm,fi(v.c),`${pct(v.c,total)}%`,
+      topR?topR[0]:'—'
+    ]};
+  });
+
+  openModal(`Category: ${category}`,`${fi(total)} entries · ${storeArr.length} stores · ${mktArr.length} markets`,`
+    <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric amber"><div class="lbl">Total entries</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Stores</div><div class="val">${storeArr.length}</div></div>
+      <div class="metric"><div class="lbl">Markets</div><div class="val">${mktArr.length}</div></div>
+      <div class="metric"><div class="lbl">% of total loss</div><div class="val">${pct(total,filterLS(f).length)}%</div></div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="section-lbl">Top reasons for this category</div>
+        ${sortableTbl(['Reason','Count','Share%'],
+          reasonArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+          ['Total',fi(total),'100%']
+        )}
+      </div>
+      <div>
+        <div class="section-lbl">By market</div>
+        ${sortableTbl(['Market','Count','Share%'],
+          mktArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+          ['Total',fi(total),'100%']
+        )}
+      </div>
+    </div>
+    ${sizeArr.length?`
+    <div class="section-lbl">Size-wise breakdown for ${category}</div>
+    ${sortableTbl(['Size','Count','Share%'],
+      sizeArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+      ['Total',fi(total),'100%']
+    )}`:''}
+    <div class="section-lbl">Store-wise breakdown — click store for full detail</div>
+    ${sortableTbl(
+      ['Store','Market','RM','Count','Share%','Top reason'],
+      storeRows,
+      ['Total','','',fi(total),'100%','']
+    )}`);
+};
 
 window.showMarketModal=function(market){
   const f=getFilters();
