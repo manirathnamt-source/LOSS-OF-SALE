@@ -6,7 +6,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Loss of Sale Dashboard — Apr 2026</title>
+<title>Loss of Sale Dashboard — 2026</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -17,7 +17,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .topbar-meta{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;}
 .pills{display:flex;gap:6px;flex-wrap:wrap;}
 .pill{font-size:11px;padding:2px 10px;border-radius:20px;font-weight:500;}
-.pill-ok{background:#e6f5ee;color:#1a6e40;}.pill-err{background:#fdeaea;color:#a32020;}.pill-wait{background:#e6eefa;color:#2a4fb0;}
+.pill-ok{background:#e6f5ee;color:#1a6e40;}.pill-err{background:#fdeaea;color:#a32020;}.pill-wait{background:#e6eefa;color:#2a4fb0;}.pill-info{background:#fff5e6;color:#a05d0a;}
 .container{max-width:1320px;margin:0 auto;padding:1.5rem 2rem 3rem;}
 /* FILTER BAR */
 .filter-bar{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;margin-bottom:1rem;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow-x:auto;}
@@ -132,7 +132,7 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
 </div>
 
 <script>
-const API='https://script.google.com/macros/s/AKfycbxt8el2WpNbtl0-_isMvhUset6Jgp-l0Ln4gtzyym6UtMjjoJs6rjE4OLGxOy4DKu8s/exec';
+const API='https://script.google.com/macros/s/AKfycbyBgY3GAbLunH2eGRo2c2-cBO8BVPpr3tnSJBVYQu6h7ceKS96HhRPSfSFi-Ezc4tiU/exec';
 
 // ── UTILS ─────────────────────────────────────────────────
 function n(v){return parseFloat(v)||0;}
@@ -140,8 +140,148 @@ function fi(v){return Math.round(v).toLocaleString('en-IN');}
 function fs(v){return v>=1e5?(v/1e5).toFixed(1)+'L':v>=1000?(v/1000).toFixed(1)+'K':Math.round(v)+'';}
 function pct(a,b){return b>0?Math.round(a/b*100):0;}
 function bc(p){return p>=40?'badge-hi':p>=25?'badge-mid':'badge-lo';}
-function dayKey(d){return`2026-04-${String(d).padStart(2,'0')}`;}
-function fmtDK(dk){try{const d=new Date(dk+'T00:00:00');return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});}catch{return dk;}}
+// ── MONTH CONFIG — AUTO-DISCOVERED FROM SHEET ──────────────
+// Pairs each "Walkins <MONTH>" tab with its matching "Loss of sale data <MONTH>" tab.
+// To add a new month: just create the two tabs in the Google Sheet — no HTML edit needed.
+let MONTHS={};        // { apr: {num,year,wkTab,lsTab,label}, may: {...}, jun: {...} }
+let _activeMonths=[]; // populated after discovery
+
+const MONTH_ALIASES={
+  jan:1,january:1,
+  feb:2,february:2,
+  mar:3,march:3,
+  apr:4,april:4,
+  may:5,
+  jun:6,june:6,
+  jul:7,july:7,
+  aug:8,august:8,
+  sep:9,sept:9,september:9,
+  oct:10,october:10,
+  nov:11,november:11,
+  dec:12,december:12,
+};
+const MONTH_LABELS=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Returns {num,year,key} for a tab name like "Walkins MAY" / "Loss of sale data APR" / "Walkins May 2026"
+function detectMonthFromTab(tabName){
+  if(!tabName)return null;
+  const lc=tabName.toLowerCase();
+  let num=null,year=null;
+  for(const [alias,n] of Object.entries(MONTH_ALIASES)){
+    const re=new RegExp(`\\b${alias}\\b`,'i');
+    if(re.test(lc)){num=n;break;}
+  }
+  if(!num)return null;
+  const yearMatch=lc.match(/\b(20\d{2})\b/);
+  year=yearMatch?parseInt(yearMatch[1]):new Date().getFullYear();
+  // Key: short month code + year (e.g., "apr2026")
+  const shortKey=Object.keys(MONTH_ALIASES).find(k=>MONTH_ALIASES[k]===num&&k.length===3);
+  return{num,year,key:`${shortKey}${year}`,label:`${MONTH_LABELS[num]} ${year}`};
+}
+
+async function discoverMonths(){
+  // Call ?list=tabs endpoint to get all sheet tab names
+  const r=await fetch(`${API}?list=tabs`,{redirect:'follow'});
+  const data=await r.json();
+  if(!data.tabs)throw new Error('list=tabs endpoint not available — please update Apps Script');
+  // Group walkins + loss-of-sale tabs by detected month
+  const found={};
+  data.tabs.forEach(tab=>{
+    if(tab.hidden)return;
+    const name=tab.name;
+    const lc=name.toLowerCase();
+    const isWalkin=lc.includes('walkin')||lc.includes('walk-in')||lc.startsWith('walk ');
+    const isLoss=lc.includes('loss of sale')||lc.includes('loss data');
+    if(!isWalkin&&!isLoss)return;
+    const m=detectMonthFromTab(name);
+    if(!m)return;
+    if(!found[m.key])found[m.key]={num:m.num,year:m.year,label:m.label,wkTab:null,lsTab:null};
+    if(isWalkin)found[m.key].wkTab=name;
+    else if(isLoss)found[m.key].lsTab=name;
+  });
+  // Keep only months that have BOTH walkin + loss tabs
+  const valid={};
+  Object.entries(found).forEach(([k,v])=>{
+    if(v.wkTab&&v.lsTab)valid[k]={num:v.num,year:v.year,wkTab:v.wkTab,lsTab:v.lsTab,label:v.label};
+  });
+  // Sort by year+month chronologically
+  const sortedKeys=Object.keys(valid).sort((a,b)=>{
+    const va=valid[a],vb=valid[b];
+    return va.year!==vb.year?va.year-vb.year:va.num-vb.num;
+  });
+  MONTHS={};
+  sortedKeys.forEach(k=>{MONTHS[k]=valid[k];});
+  _activeMonths=sortedKeys;
+  console.log('[discoverMonths] discovered:',Object.keys(MONTHS).map(k=>`${k} (${MONTHS[k].wkTab} + ${MONTHS[k].lsTab})`));
+  // Surface unpaired tabs as a warning
+  const unpaired=Object.entries(found).filter(([,v])=>!v.wkTab||!v.lsTab);
+  if(unpaired.length){
+    console.warn('[discoverMonths] unpaired tabs (need both Walkins + Loss for the same month):',unpaired.map(([k,v])=>`${k}: walkin=${v.wkTab||'MISSING'} loss=${v.lsTab||'MISSING'}`));
+  }
+  return{discovered:Object.keys(MONTHS).length,unpaired};
+}
+
+function dayKey(day,month,year){
+  return`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+function fmtDK(dk){
+  try{const d=new Date(dk+'T00:00:00');return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});}
+  catch{return dk;}
+}
+
+// Universal date → {day,month,year} parser
+function parseDate(raw){
+  if(raw===null||raw===undefined||raw==='')return null;
+  // Native Date object (rare in JSON but handle it)
+  if(raw instanceof Date&&!isNaN(raw))return{year:raw.getFullYear(),month:raw.getMonth()+1,day:raw.getDate()};
+  const s=String(raw).trim();
+  if(!s)return null;
+  // ISO timestamp from Apps Script: "2026-04-12T18:30:00.000Z" or "2026-04-12T00:00:00.000+05:30"
+  // The spreadsheet timezone matters: midnight in IST → 18:30 prev day UTC. So we don't trust UTC.
+  // Strategy: try the date prefix as-is FIRST. If hours/min are 00:00 OR the offset suggests local midnight, use the prefix.
+  // For "T18:30:00.000Z" specifically (sheet TZ = IST), the actual date is the NEXT day.
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if(m){
+    const y=parseInt(m[1]),mo=parseInt(m[2]),d=parseInt(m[3]),hh=parseInt(m[4]);
+    // Tz info: ends with Z = UTC; ends with +HH:MM = local
+    if(/Z$/.test(s)){
+      // UTC timestamp. If hh>=12, this represents next day in IST (UTC+5:30). Add 1 day.
+      // If hh<12 (e.g., 03:00Z = 08:30 IST same day), use as-is.
+      if(hh>=12){
+        const dt=new Date(Date.UTC(y,mo-1,d));
+        dt.setUTCDate(dt.getUTCDate()+1);
+        return{year:dt.getUTCFullYear(),month:dt.getUTCMonth()+1,day:dt.getUTCDate()};
+      }
+      return{year:y,month:mo,day:d};
+    }
+    // Has explicit offset (+05:30 etc) — date prefix is local midnight, use as-is
+    return{year:y,month:mo,day:d};
+  }
+  // YYYY-MM-DD
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m)return{year:parseInt(m[1]),month:parseInt(m[2]),day:parseInt(m[3])};
+  // DD-Mon-YYYY or DD-Mon-YY (e.g., "12-Apr-2026")
+  m=s.match(/^(\d{1,2})-([A-Za-z]{3,9})-(\d{2,4})$/);
+  if(m){
+    const mo={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12,
+              january:1,february:2,march:3,april:4,june:6,july:7,august:8,september:9,october:10,november:11,december:12}[m[2].toLowerCase()];
+    const yr=m[3].length===2?2000+parseInt(m[3]):parseInt(m[3]);
+    return mo?{year:yr,month:mo,day:parseInt(m[1])}:null;
+  }
+  // D/MM/YYYY or DD/MM/YYYY
+  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m)return{year:parseInt(m[3]),month:parseInt(m[2]),day:parseInt(m[1])};
+  // D/MM/YY
+  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if(m)return{year:2000+parseInt(m[3]),month:parseInt(m[2]),day:parseInt(m[1])};
+  return null;
+}
+// Returns dayKey string or null
+function toDayKey(raw){
+  const p=parseDate(raw);
+  if(!p)return null;
+  return dayKey(p.day,p.month,p.year);
+}
 
 // ── TAB SWITCHING ─────────────────────────────────────────
 function show(id){
@@ -161,7 +301,20 @@ function openModal(title,sub,html){
 }
 async function fetchTab(name){
   const r=await fetch(`${API}?sheet=${encodeURIComponent(name)}`,{redirect:'follow'});
-  return r.json();
+  const json=await r.json();
+  // DIAGNOSTIC: dump first row + first date-like value
+  if(json.headers&&json.rows&&json.rows.length){
+    const sample=json.rows[0];
+    const hdrs=json.headers.slice(0,12);
+    console.log(`[fetchTab] "${name}" → ${json.rows.length} rows, headers:`,hdrs);
+    console.log(`[fetchTab] "${name}" first row:`,sample.slice(0,12));
+    // Find first column whose header contains "date" and dump that cell
+    const dateColIdx=json.headers.findIndex(h=>(h||'').toLowerCase().includes('date'));
+    if(dateColIdx>=0){
+      console.log(`[fetchTab] "${name}" first date cell @col ${dateColIdx} =`,sample[dateColIdx],'· typeof:',typeof sample[dateColIdx]);
+    }
+  }
+  return json;
 }
 function addPill(text,cls){
   const p=document.createElement('span');p.className=`pill ${cls}`;p.textContent=text;
@@ -206,16 +359,8 @@ function sortableTbl(headers,rows,footerRow,rowClass){
 }
 
 // ── DATE / TIME / MOBILE ──────────────────────────────────
-function toAprilDay(raw){
-  if(!raw)return null;const s=String(raw).trim();
-  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if(m)return(parseInt(m[1])===2026&&parseInt(m[2])===4)?parseInt(m[3]):null;
-  m=s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
-  if(m){const mo={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12}[m[2].toLowerCase()];const yr=m[3].length===2?2000+parseInt(m[3]):parseInt(m[3]);return(mo===4&&yr===2026)?parseInt(m[1]):null;}
-  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if(m)return(parseInt(m[2])===4&&parseInt(m[3])===2026)?parseInt(m[1]):null;
-  return null;
-}
+// toAprilDay kept for backward compat — now uses universal toDayKey
+function toAprilDay(raw){const dk=toDayKey(raw);if(!dk)return null;const p=parseDate(raw);return p?p.day:null;}
 function toTimeBucket(raw){
   if(!raw)return null;const s=String(raw).trim();
   const m=s.match(/^(\d{1,2})-(\d{1,2})\s*(AM|PM)$/i);
@@ -232,16 +377,62 @@ function mobStatus(val){
 function normStore(s){return String(s||'').replace(/\s*\([^)]*\)\s*$/,'').trim().toUpperCase();}
 
 // ── CUSTOMER TYPE COUNTER ─────────────────────────────────
+// Returns counts of New / Repeat / Other based on detected customer type column.
+// Resilient: if header-based custIdx misses, auto-detects column by scanning data.
+function isNewVal(c){
+  if(!c)return false;
+  // Match: new, n, fresh, first, first-time, 1st, walk-in (sometimes used)
+  return c==='new'||c==='n'||c==='new customer'||c==='first time'||c==='first-time'||c==='1st'||c==='fresh'||c.startsWith('new ');
+}
+function isRepVal(c){
+  if(!c)return false;
+  // Match anything starting with "rep" (repeat, repeated, repeating, repeat customer) or "ret" (returning, return)
+  // Also: r, old, existing, regular, loyalty, member
+  if(c==='r'||c==='rp'||c==='old'||c==='existing'||c==='regular'||c==='loyalty'||c==='member')return true;
+  if(c.startsWith('rep')||c.startsWith('ret'))return true;
+  return false;
+}
+function autoDetectCustCol(rows){
+  // Scan first 200 rows across all columns to find the one with most new/repeat hits
+  if(!rows||!rows.length)return -1;
+  const sample=rows.slice(0,200);
+  const ncols=Math.max(...sample.map(r=>r.length));
+  let bestIdx=-1,bestScore=0;
+  for(let c=0;c<ncols;c++){
+    let score=0;
+    for(const r of sample){
+      const v=String(r[c]||'').toLowerCase().trim();
+      if(isNewVal(v)||isRepVal(v))score++;
+    }
+    if(score>bestScore){bestScore=score;bestIdx=c;}
+  }
+  return bestScore>=5?bestIdx:-1; // require ≥5 hits to claim it's the cust col
+}
 function getCustCounts(rows){
-  const{custIdx}=_LS_IDX;
+  let{custIdx}=_LS_IDX;
+  if(!rows||!rows.length)return{new:0,repeat:0,other:0};
+  // If header-based index missing OR returns 0 hits, retry with auto-detection
+  if(custIdx<0){
+    custIdx=autoDetectCustCol(rows);
+    if(custIdx>=0){_LS_IDX.custIdx=custIdx;console.log('[CustType] auto-detected col:',custIdx);}
+  }
   if(custIdx<0)return{new:0,repeat:0,other:0};
   let nw=0,rp=0,ot=0;
   rows.forEach(r=>{
-    const c=String(r[custIdx]||'').toLowerCase();
-    if(c.includes('new'))nw++;
-    else if(c.includes('repeat'))rp++;
+    const c=String(r[custIdx]||'').toLowerCase().trim();
+    if(isNewVal(c))nw++;
+    else if(isRepVal(c))rp++;
     else if(c)ot++;
   });
+  // If still 0 new + 0 repeat, the index is wrong — try auto-detection one more time
+  if(nw===0&&rp===0){
+    const altIdx=autoDetectCustCol(rows);
+    if(altIdx>=0&&altIdx!==custIdx){
+      _LS_IDX.custIdx=altIdx;
+      console.log('[CustType] retrying with col:',altIdx);
+      return getCustCounts(rows);
+    }
+  }
   return{new:nw,repeat:rp,other:ot};
 }
 
@@ -250,7 +441,7 @@ let _WK=null,_LS_ROWS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={};
 let _lsSyncOn=false; // toggle: false = Loss tab shows ALL data
 
 // ── FILTER STATE — stored in object, not just DOM ─────────
-let _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:'',custType:''};
+let _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:'',custType:'',month:'all'};
 
 function getFilters(){return{..._F};}
 
@@ -259,34 +450,102 @@ function setFilter(key,val){
   renderAll();
 }
 function resetFilters(){
-  _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:'',custType:''};
-  ['f-date-from','f-date-to','f-cluster','f-rm','f-market','f-store','f-reason','f-cust-type'].forEach(id=>{
-    const el=document.getElementById(id);if(el)el.value='';
+  _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:'',custType:'',month:'all'};
+  ['f-month','f-date-from','f-date-to','f-cluster','f-rm','f-market','f-store','f-reason','f-cust-type'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value=id==='f-month'?'all':'';
   });
+  applyMonthFilter();
   buildFilterBar();
   renderAll();
 }
 
 // ── PARSE WALKINS ─────────────────────────────────────────
 function parseWalkins(headers,rows){
-  const lh=headers.map(h=>(h||'').toLowerCase());
+  const lh=headers.map(h=>(h||'').toLowerCase().trim());
+  // ── DETECT INFO COLUMNS BY HEADER (any order works) ──────
+  const findHdr=(...alts)=>{
+    for(const alt of alts){
+      const i=lh.findIndex(h=>h===alt.toLowerCase());
+      if(i>=0)return i;
+    }
+    for(const alt of alts){
+      const i=lh.findIndex(h=>h.includes(alt.toLowerCase()));
+      if(i>=0)return i;
+    }
+    return -1;
+  };
+  const cols={
+    outlet:  findHdr('outlet name','outlet','store name','branch'),
+    storeNm: findHdr('store name','store'),
+    market:  findHdr('market'),
+    rm:      findHdr('regional manager','rm','regional mgr'),
+    cluster: findHdr('cluster','cluster manager','cm'),
+    region:  findHdr('region'),
+    type:    findHdr('mall/street','type','format','store type'),
+  };
+  // Detect grand-total columns (last "walk-ins"/"bills" near end of row)
   let twIdx=-1,tbIdx=-1;
-  for(let i=lh.length-1;i>=0;i--){if(lh[i].includes('total')&&lh[i].includes('walk')){twIdx=i;break;}}
-  for(let i=lh.length-1;i>=0;i--){if(lh[i].includes('total')&&lh[i].includes('bill')&&!lh[i].includes('conv')){tbIdx=i;break;}}
-  if(twIdx<0){for(let i=lh.length-1;i>=0;i--){if(lh[i].includes('walk')){twIdx=i;break;}}}
-  if(tbIdx<0){for(let i=lh.length-1;i>=0;i--){if(lh[i].includes('bill')&&!lh[i].includes('conv')){tbIdx=i;break;}}}
-  const INFO=8,GRP=4;const groups=[];
-  for(let i=INFO;i+2<headers.length;i+=GRP){if((headers[i]||'').toLowerCase().includes('total'))break;groups.push({di:i,wi:i+1,bi:i+2});}
+  for(let i=lh.length-1;i>=0;i--){if((lh[i].includes('overall')||lh[i].includes('total'))&&lh[i].includes('walk')){twIdx=i;break;}}
+  for(let i=lh.length-1;i>=0;i--){if((lh[i].includes('overall')||lh[i].includes('total'))&&lh[i].includes('bill')){tbIdx=i;break;}}
+  // ── DETECT DAY-GROUPS ──────────────────────────────────
+  // Each group = Date | Walk-Ins | Bills | Conversion. Scan headers for "date"-like cells and verify the next 2 are walkins/bills.
+  // NOTE: Apps Script may rename duplicate headers (Date → Date_1, Date_2 etc) so we use prefix matching, not exact equality.
+  const groups=[];
+  for(let i=0;i<lh.length-2;i++){
+    const h=lh[i]||'';
+    // "date" or "date_1" or "date 1" or "date2" — anything starting with "date" and not containing other words
+    const isDateHdr=h==='date'||/^date[\s_]*\d*$/.test(h);
+    if(isDateHdr){
+      const next1=lh[i+1]||'';
+      const next2=lh[i+2]||'';
+      if(next1.includes('walk')&&next2.includes('bill')){
+        groups.push({di:i,wi:i+1,bi:i+2});
+        i+=3; // for loop's i++ takes us to next group start (i+4 total)
+      }
+    }
+  }
+  console.log('[parseWalkins] cols=',cols,'twIdx=',twIdx,'tbIdx=',tbIdx,'dayGroups=',groups.length,'rows=',rows.length);
+  if(cols.outlet<0){
+    console.error('[parseWalkins] ABORT — could not find Outlet Name column. Headers:',headers);
+    return{stores:[],days:[],rms:[],clusters:[],markets:[],dks:[],_err:'No Outlet Name column found'};
+  }
+  // ── PARSE ROWS ─────────────────────────────────────────
+  let _diagLogged=0;
   const stores=rows.map(row=>{
-    if(!row||!row[1])return null;
-    const outlet=String(row[1]||'').trim();
-    if(!outlet||outlet==='Outlet Name')return null;
-    const days=groups.map(g=>{const d=toAprilDay(row[g.di]);if(!d)return null;return{dk:dayKey(d),dayNum:d,w:n(row[g.wi]),b:n(row[g.bi])};}).filter(Boolean);
-    return{outlet,outletNorm:normStore(outlet),market:String(row[3]||'Unknown'),rm:String(row[4]||'Unknown'),cluster:String(row[5]||'Unknown'),region:String(row[6]||'Unknown'),type:String(row[7]||'Unknown'),totalW:twIdx>=0?n(row[twIdx]):0,totalB:tbIdx>=0?n(row[tbIdx]):0,days};
-  }).filter(s=>s&&(s.totalW>0||s.totalB>0));
+    if(!row)return null;
+    const outlet=String(row[cols.outlet]||'').trim();
+    if(!outlet||outlet.toLowerCase()==='outlet name')return null;
+    const days=groups.map(g=>{
+      const rawDate=row[g.di];
+      const dk=toDayKey(rawDate);
+      if(_diagLogged<3&&groups.indexOf(g)===0){
+        console.log(`[parseWalkins.diag] outlet="${outlet}" rawDate=`,rawDate,'(typeof '+typeof rawDate+') → dk=',dk);
+        _diagLogged++;
+      }
+      if(!dk)return null;
+      const p=parseDate(rawDate);
+      if(!p)return null;
+      return{dk,dayNum:p.day,month:p.month,year:p.year,w:n(row[g.wi]),b:n(row[g.bi])};
+    }).filter(Boolean);
+    const sumW=days.reduce((a,d)=>a+d.w,0);
+    const sumB=days.reduce((a,d)=>a+d.b,0);
+    return{
+      outlet,
+      outletNorm:normStore(outlet),
+      market: cols.market>=0?String(row[cols.market]||'Unknown').trim()||'Unknown':'Unknown',
+      rm:     cols.rm>=0     ?String(row[cols.rm]||'Unknown').trim()||'Unknown':'Unknown',
+      cluster:cols.cluster>=0?String(row[cols.cluster]||'Unknown').trim()||'Unknown':'Unknown',
+      region: cols.region>=0 ?String(row[cols.region]||'Unknown').trim()||'Unknown':'Unknown',
+      type:   cols.type>=0   ?String(row[cols.type]||'Unknown').trim()||'Unknown':'Unknown',
+      totalW: (twIdx>=0?n(row[twIdx]):0)||sumW,
+      totalB: (tbIdx>=0?n(row[tbIdx]):0)||sumB,
+      days
+    };
+  }).filter(s=>s); // keep ALL stores that have an outlet name (zero-walkin stores remain visible)
+  console.log('[parseWalkins] kept',stores.length,'stores · sample:',stores[0]?{outlet:stores[0].outlet,rm:stores[0].rm,market:stores[0].market,cluster:stores[0].cluster,days:stores[0].days.length,totalW:stores[0].totalW}:'none');
   const dayMap={};
   stores.forEach(s=>s.days.forEach(d=>{if(!dayMap[d.dk])dayMap[d.dk]={dk:d.dk,dayNum:d.dayNum,w:0,b:0};dayMap[d.dk].w+=d.w;dayMap[d.dk].b+=d.b;}));
-  const days=Object.values(dayMap).sort((a,b)=>a.dayNum-b.dayNum);
+  const days=Object.values(dayMap).sort((a,b)=>a.dk.localeCompare(b.dk));
   const rms=[...new Set(stores.map(s=>s.rm).filter(Boolean))].sort();
   const clusters=[...new Set(stores.map(s=>s.cluster).filter(Boolean))].sort();
   const markets=[...new Set(stores.map(s=>s.market).filter(Boolean))].sort();
@@ -298,40 +557,62 @@ function parseWalkins(headers,rows){
 // ── PARSE LOSS OF SALE ────────────────────────────────────
 function parseLoss(headers,rows){
   const lh=headers.map(h=>(h||'').toLowerCase().trim());
-  const ep=(exact,parts)=>{let i=lh.indexOf(exact);if(i<0)i=lh.findIndex(h=>parts.some(p=>h===p||h.includes(p)));return i;};
-  _LS_IDX={
-    dateIdx:   ep('date',['date']),
-    reasonIdx: ep('reason',['reason','cause','remark']),
-    catIdx:    ep('category',['category','cat','dept','group','segment']),
-    qtyIdx:    ep('qty',['qty','quantity','nos','pcs']),
-    valIdx:    ep('value',['value','amount','loss value','price']),
-    storeIdx:  ep('store name',['store name','store','outlet','branch']),
-    phoneIdx:  ep('phone number',['phone number','phone','mobile','contact']),
-    timingIdx: ep('timing',['timing','time']),
-    empIdx:    ep('employee',['employee name','employee','emp','staff','executive','se','salesperson']),
-    custIdx:   ep('customer type',['customer type','cust type','customer','new','repeat','visitor type']),
-    subCatIdx: ep('product sub category',['product sub category','sub category','subcategory']),
-    sizeIdx:   ep('size',['size']),styleIdx:ep('style',['style']),
-    colorIdx:  ep('color',['color','colour']),polishIdx:ep('polish',['polish']),
-    designIdx: ep('design number',['design number','design no','design']),
-    notesIdx:  ep('notes',['notes','note','remarks']),
+  // Match exact headers (case-insensitive), with fallbacks for variations
+  const findCol=(...alts)=>{
+    for(const alt of alts){
+      const i=lh.indexOf(alt.toLowerCase());
+      if(i>=0)return i;
+    }
+    for(const alt of alts){
+      const i=lh.findIndex(h=>h.includes(alt.toLowerCase()));
+      if(i>=0)return i;
+    }
+    return -1;
   };
+  // Detect both "reason" columns separately:
+  //   reasonIdx     → col I "Reason Of Loss Of Sale" (broader category)
+  //   subReasonIdx  → col J "Reason" (specific reason). Only set if it's a SECOND, different column from reasonIdx.
+  const reasonIdxA=findCol('reason of loss of sale');
+  // Find first standalone "reason" header that ISN'T already used as reasonIdxA
+  let subReasonIdxA=-1;
+  for(let i=0;i<lh.length;i++){
+    if(i===reasonIdxA)continue;
+    if(lh[i]==='reason')subReasonIdxA=i;
+  }
+  _LS_IDX={
+    custIdx:   findCol('customer type','cust type','visitor type'),
+    nameIdx:   findCol('customer name','customer','name'),
+    phoneIdx:  findCol('phone number','phone','mobile','contact'),
+    dateIdx:   findCol('date'),
+    storeIdx:  findCol('outlet name','outlet','store name','store','branch'),
+    regionIdx: findCol('region'),
+    timingIdx: findCol('timing','time'),
+    empIdx:    findCol('employee','staff','salesperson','executive','se'),
+    reasonIdx:    reasonIdxA>=0?reasonIdxA:findCol('reason','cause','remark'),
+    subReasonIdx: subReasonIdxA, // col J — specific reason. -1 if not present.
+    catIdx:    findCol('category','cat','dept','group','segment'),
+    notesIdx:  findCol('customer notes','notes','remarks'),
+    subCatIdx: findCol('product sub category','sub category','subcategory'),
+    sizeIdx:   findCol('size'),
+    styleIdx:  findCol('style'),
+    colorIdx:  findCol('color','colour'),
+    polishIdx: findCol('polish'),
+    designIdx: findCol('design number','design no','design'),
+    qtyIdx:    findCol('qty','quantity','nos','pcs'),
+    valIdx:    findCol('value','amount','loss value','price'),
+  };
+  console.log('[parseLoss] columns detected:',_LS_IDX,'· headers count=',headers.length,'rows=',rows.length);
   const{dateIdx,storeIdx,phoneIdx,timingIdx}=_LS_IDX;
-  const wkDayNums=_WK.days.map(d=>d.dayNum);
-  const maxWkDay=wkDayNums.length?Math.max(...wkDayNums):31;
-  const minWkDay=wkDayNums.length?Math.min(...wkDayNums):1;
+  const wkDayKeys=new Set(_WK.days.map(d=>d.dk));
   _LS_ROWS=rows.map(r=>{
-    const dayNum=toAprilDay(r[dateIdx]);
-    const withinWk=dayNum&&dayNum>=minWkDay&&dayNum<=maxWkDay;
-    const dk=dayNum?dayKey(dayNum):null; // always set dk if date parsed
-    const syncedDk=withinWk?dk:null;    // syncedDk is null if beyond walkins
+    const dk=toDayKey(r[dateIdx]);
+    const syncedDk=dk&&wkDayKeys.has(dk)?dk:null;
     const storeNorm=normStore(String(r[storeIdx]||''));
     const wkStore=_WK.stores.find(s=>s.outletNorm===storeNorm);
     const rm=_STORE_RM[storeNorm]||(wkStore?wkStore.rm:'Unknown');
     const productParts=[_LS_IDX.subCatIdx,_LS_IDX.sizeIdx,_LS_IDX.styleIdx,_LS_IDX.colorIdx,_LS_IDX.polishIdx,_LS_IDX.designIdx,_LS_IDX.notesIdx].filter(i=>i>=0).map(i=>String(r[i]||'').trim()).filter(Boolean);
     return{...r,_dk:dk,_syncedDk:syncedDk,_rm:rm,_mob:mobStatus(phoneIdx>=0?r[phoneIdx]:''),_time:toTimeBucket(timingIdx>=0?r[timingIdx]:''),_product:productParts.join(' | ')||'Unknown',_wkStore:wkStore};
   });
-  // Day map uses synced dates only
   _LS_DAY_MAP={};
   _LS_ROWS.forEach(r=>{if(r._syncedDk){if(!_LS_DAY_MAP[r._syncedDk])_LS_DAY_MAP[r._syncedDk]=0;_LS_DAY_MAP[r._syncedDk]++;}});
 }
@@ -393,6 +674,79 @@ function filterLSTab(f){
   });
 }
 
+// ── DIAGNOSTIC PANEL — shows what's happening internally ──────
+function buildDiagnostics(){
+  const totalLS=_LS_ROWS.length;
+  const syncedLS=_LS_ROWS.filter(r=>r._syncedDk).length;
+  const withDate=_LS_ROWS.filter(r=>r._dk).length;
+  const withoutDate=totalLS-withDate;
+  const wkDays=_WK.days.length;
+  const wkStores=_WK.stores.length;
+  const storesWithDays=_WK.stores.filter(s=>s.days&&s.days.length>0).length;
+
+  const idx=_LS_IDX||{};
+  const colInfo=Object.entries(idx).map(([k,v])=>`${k}=${v>=0?v:'❌'}`).join(' · ');
+
+  // ALL distinct customer type values (not just first N)
+  const custIdx=idx.custIdx;
+  const custSample={};
+  if(custIdx>=0){
+    _LS_ROWS.forEach(r=>{
+      const v=String(r[custIdx]||'').trim();
+      if(v)custSample[v]=(custSample[v]||0)+1;
+    });
+  }
+  const custSampleStr=Object.entries(custSample).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+    const lc=k.toLowerCase();
+    const matched=isNewVal(lc)?'🟢 NEW':isRepVal(lc)?'🔵 REPEAT':'⚪ other';
+    return`<code>"${k}"</code>×${fi(v)} ${matched}`;
+  }).join(' · ')||'no values found';
+
+  // Reason values
+  const reasonIdx=idx.reasonIdx;
+  const reasonSample={};
+  if(reasonIdx>=0){
+    _LS_ROWS.slice(0,1000).forEach(r=>{
+      const v=String(r[reasonIdx]||'').trim();
+      if(v)reasonSample[v]=(reasonSample[v]||0)+1;
+    });
+  }
+  const reasonSampleStr=Object.entries(reasonSample).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>`<code>"${k.slice(0,30)}"</code>×${fi(v)}`).join(' · ')||'no values';
+
+  // Sub-reason col J values
+  const subReasonIdx=idx.subReasonIdx;
+  const subReasonSample={};
+  if(subReasonIdx>=0){
+    _LS_ROWS.slice(0,1000).forEach(r=>{
+      const v=String(r[subReasonIdx]||'').trim();
+      if(v)subReasonSample[v]=(subReasonSample[v]||0)+1;
+    });
+  }
+  const subReasonStr=Object.entries(subReasonSample).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>`<code>"${k.slice(0,30)}"</code>×${fi(v)}`).join(' · ')||(subReasonIdx<0?'(col J not detected)':'no values');
+
+  // Sample raw date value
+  const dateIdx=idx.dateIdx;
+  let dateSample='?';
+  if(dateIdx>=0&&_LS_ROWS.length){
+    const raw=_LS_ROWS[0][dateIdx];
+    dateSample=`raw=${JSON.stringify(raw)} (typeof ${typeof raw}) → parsed dk=${_LS_ROWS[0]._dk||'NULL'}`;
+  }
+
+  return`
+    <details open style="background:#fff8e6;border:1px solid #f0d68a;border-radius:8px;padding:8px 12px;margin-bottom:1rem;font-size:11px;font-family:monospace;">
+      <summary style="cursor:pointer;font-weight:600;color:#a05d0a;">🔍 Diagnostic panel (click to collapse)</summary>
+      <div style="margin-top:8px;line-height:1.7;">
+        <div><strong>Walkins:</strong> ${wkStores} stores · ${wkDays} unique days · ${storesWithDays} stores have day data</div>
+        <div><strong>LS rows:</strong> total=${fi(totalLS)} · with parseable date=${fi(withDate)} · synced to walkins=${fi(syncedLS)} · missing date=${fi(withoutDate)}</div>
+        <div><strong>LS columns:</strong> ${colInfo}</div>
+        <div><strong>Date sample:</strong> ${dateSample}</div>
+        <div style="margin-top:6px;padding:6px;background:#fff;border-radius:4px;"><strong>👤 Customer Type values (all):</strong><br>${custSampleStr}</div>
+        <div style="margin-top:6px;padding:6px;background:#fff;border-radius:4px;"><strong>📋 Reason col I values (top 10):</strong><br>${reasonSampleStr}</div>
+        <div style="margin-top:6px;padding:6px;background:#fff;border-radius:4px;"><strong>🎯 Reason col J values (top 10):</strong><br>${subReasonStr}</div>
+      </div>
+    </details>`;
+}
+
 // ── GLOBAL FILTER BAR ────────────────────────────────────
 function buildFilterBar(){
   if(!_WK||!_LS_IDX||_LS_IDX.dateIdx===undefined)return;
@@ -407,6 +761,12 @@ function buildFilterBar(){
 
   document.getElementById('global-filter-bar').innerHTML=`
     <div class="filter-bar">
+      <label>Month:</label>
+      <select id="f-month" onchange="_F.month=this.value;applyMonthFilter();buildFilterBar();renderAll()">
+        ${_activeMonths.length>1?`<option value="all"${_F.month==='all'?' selected':''}>All months (${_activeMonths.length})</option>`:''}
+        ${_activeMonths.map(k=>`<option value="${k}"${_F.month===k?' selected':''}>${MONTHS[k].label}</option>`).join('')}
+      </select>
+      <div style="width:1px;height:20px;background:var(--border);flex-shrink:0;"></div>
       <label>From:</label>
       <select id="f-date-from" onchange="_F.dateFrom=this.value;if(_F.dateTo&&_F.dateTo<_F.dateFrom)_F.dateTo='';buildFilterBar();renderAll()">
         <option value="">Start</option>
@@ -448,14 +808,11 @@ function buildFilterBar(){
         ${custTypes.map(c=>`<option${_F.custType===c?' selected':''}>${c}</option>`).join('')}
       </select>`:''}
       <div style="width:1px;height:20px;background:var(--border);flex-shrink:0;"></div>
-      <label>LS Sync:</label>
-      <label class="switch">
-        <input type="checkbox" id="ls-sync-toggle" ${_lsSyncOn?'checked':''} onchange="_lsSyncOn=this.checked;buildFilterBar();renderLoss();">
-        <span class="slider"></span>
-      </label>
-      <span class="sync-badge ${_lsSyncOn?'sync-on':'sync-off'}">
-        ${_lsSyncOn?`✅ Synced till ${lastWkDay?fmtDK(lastWkDay.dk):'—'} · ${fi(totalLSSynced)}`:`🔓 All data · ${fi(totalLSAll)}`}
-      </span>
+      <label style="margin-right:4px;">View:</label>
+      <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0;">
+        <button class="seg-btn ${!_lsSyncOn?'seg-active':''}" onclick="_lsSyncOn=false;buildFilterBar();renderLoss();" style="border:0;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${!_lsSyncOn?'var(--blue)':'var(--surface)'};color:${!_lsSyncOn?'#fff':'var(--muted)'};">📋 All Loss Data (${fi(totalLSAll)})</button>
+        <button class="seg-btn ${_lsSyncOn?'seg-active':''}" onclick="_lsSyncOn=true;buildFilterBar();renderLoss();" style="border:0;border-left:1px solid var(--border);padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${_lsSyncOn?'var(--blue)':'var(--surface)'};color:${_lsSyncOn?'#fff':'var(--muted)'};">🔗 Synced to Walkins (${fi(totalLSSynced)})</button>
+      </div>
       <button class="filter-btn" onclick="resetFilters()">Reset</button>
     </div>
     <div style="display:flex;align-items:center;gap:16px;padding:8px 14px;background:#e6eefa;border-radius:10px;margin-bottom:1rem;font-size:11px;color:#1a3fa0;flex-wrap:wrap;">
@@ -516,12 +873,56 @@ function renderOverview(){
   const dayTblRows=dayRows.map(d=>{const nb=d.w-d.b;const conv=pct(d.b,d.w);const lsPct=pct(d.ls,nb);
     return{cells:[`<strong>${fmtDK(d.dk)}</strong>`,fi(d.w),fi(d.b),`<span class="badge ${bc(conv)}">${conv}%</span>`,fi(nb),fi(d.ls),`<span class="badge ${bc(lsPct)}">${lsPct}%</span>`]};});
 
+  // ── RM Summary aggregation ───────────────────────────────
+  // For each RM, compute store breakdown: total stores, stores with walkins, stores with zero walkins, total walkins/bills/LS
+  const rmMap={};
+  // First pass: include ALL stores under each RM (filtered by cluster/market only, not store-level)
+  const rmFilt=_WK.stores.filter(s=>
+    (!f.rm||s.rm===f.rm)&&(!f.cluster||s.cluster===f.cluster)&&
+    (!f.market||s.market===f.market)
+  );
+  rmFilt.forEach(s=>{
+    if(!rmMap[s.rm])rmMap[s.rm]={stores:[],totalW:0,totalB:0,zeroStores:0,daysActive:0,ls:0};
+    const dRange=daysInRange(s.days,f);
+    const w=dRange.reduce((a,d)=>a+d.w,0);
+    const b=dRange.reduce((a,d)=>a+d.b,0);
+    const daysWith=dRange.filter(d=>d.w>0).length;
+    rmMap[s.rm].stores.push({outlet:s.outlet,outletNorm:s.outletNorm,market:s.market,cluster:s.cluster,w,b,daysWith,totalDays:dRange.length});
+    rmMap[s.rm].totalW+=w;
+    rmMap[s.rm].totalB+=b;
+    if(w===0||daysWith===0)rmMap[s.rm].zeroStores++;
+  });
+  filtLS.forEach(r=>{if(r._rm&&rmMap[r._rm])rmMap[r._rm].ls++;});
+  const rmArr=Object.entries(rmMap).filter(([k])=>k&&k!=='Unknown').sort((a,b)=>b[1].totalW-a[1].totalW);
+  const rmTblRows=rmArr.map(([rm,v])=>{
+    const nb=v.totalW-v.totalB;const cv=pct(v.totalB,v.totalW);const lsPct=pct(v.ls,nb);
+    const totalStores=v.stores.length;const activeStores=totalStores-v.zeroStores;
+    const zeroBadge=v.zeroStores>0?`<span class="badge badge-red">${v.zeroStores}</span>`:`<span class="badge badge-green">0</span>`;
+    return{cells:[
+      `<span class="clickable" onclick="showRMModal('${rm.replace(/'/g,"\\'")}')">${rm}</span>`,
+      fi(totalStores),
+      fi(activeStores),
+      zeroBadge,
+      fi(v.totalW),
+      fi(v.totalB),
+      fi(nb),
+      `<span class="badge ${bc(cv)}">${cv}%</span>`,
+      fi(v.ls),
+      `<span class="badge ${bc(lsPct)}">${lsPct}%</span>`
+    ]};
+  });
+  const totRMStores=rmArr.reduce((s,[,v])=>s+v.stores.length,0);
+  const totRMZero=rmArr.reduce((s,[,v])=>s+v.zeroStores,0);
+
   document.getElementById('ov').innerHTML=`
     <div class="metrics">
       <div class="metric blue"><div class="lbl">Total walkins</div><div class="val">${fi(totalW)}</div><div class="sub">${filtStores.length} stores</div></div>
       <div class="metric green"><div class="lbl">Total bills</div><div class="val">${fi(totalB)}</div><div class="sub">${avgConv}% conversion</div></div>
       <div class="metric red"><div class="lbl">Non-buyers</div><div class="val">${fi(totalNB)}</div><div class="sub">walkins − bills</div></div>
       <div class="metric amber"><div class="lbl">Loss captured</div><div class="val">${fi(totalLS)}</div><div class="sub">${lsCov}% of non-buyers</div></div>
+    </div>
+    <div class="card"><div class="card-title">RM summary — click RM for store-level detail (incl. zero-walkin stores)</div>
+      ${sortableTbl(['RM','Total stores','Active','🔴 Zero walkins','Walkins','Bills','Non-buyers','Conv%','Loss captured','Coverage%'],rmTblRows,['Total',fi(totRMStores),fi(totRMStores-totRMZero),totRMZero>0?`<span class="badge badge-red">${totRMZero}</span>`:'0',fi(totalW),fi(totalB),fi(totalNB),`<span class="badge ${bc(avgConv)}">${avgConv}%</span>`,fi(totalLS),`<span class="badge ${bc(lsCov)}">${lsCov}%</span>`])}
     </div>
     <div class="card"><div class="card-title">Market summary — click market for store details</div>
       ${sortableTbl(['Market','Walkins','Bills','Non-buyers','Conv%','Loss captured','Coverage%','🆕 New','🔁 Repeat'],mktTblRows,['Total',fi(totalW),fi(totalB),fi(totalNB),`<span class="badge ${bc(avgConv)}">${avgConv}%</span>`,fi(totalLS),`<span class="badge ${bc(lsCov)}">${lsCov}%</span>`,'',''])}
@@ -551,6 +952,7 @@ function renderLoss(){
   const custIdx2=_LS_IDX.custIdx;
   const custMap={};rows.forEach(r=>{const c=custIdx2>=0?String(r[custIdx2]||''):'';if(c)custMap[c]=(custMap[c]||0)+1;});
   const custArr=Object.entries(custMap).sort((a,b)=>b[1]-a[1]);
+  const hourMap={};rows.forEach(r=>{if(r._time){if(!hourMap[r._time])hourMap[r._time]=0;hourMap[r._time]++;}});
   const hourArr=Object.entries(hourMap).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
   const topHour=hourArr.length?hourArr.reduce((a,b)=>a[1]>b[1]?a:b):null;
   const dayMapLS={};rows.forEach(r=>{const dk=_lsSyncOn?r._syncedDk:r._dk;if(dk){if(!dayMapLS[dk])dayMapLS[dk]=0;dayMapLS[dk]++;}});
@@ -622,7 +1024,120 @@ function renderLoss(){
           const cc=getCustCounts(rmRows);
           return{cells:[`<strong>${k}</strong>`,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Watch</span>':'<span class="badge badge-green">OK</span>',`<span style="color:var(--green);font-weight:600">${fi(cc.new)}</span>`,`<span style="color:var(--blue);font-weight:600">${fi(cc.repeat)}</span>`]};
         })
-      )}</div>`;
+      )}</div>
+    ${renderWoWSection(rows)}`;
+}
+
+// ── WEEK-ON-WEEK COMPARISON ───────────────────────────────
+// Buckets LS rows into ISO weeks (Mon-start). Groups by RM / CM / Store with WoW % change.
+function getWeekKey(dk){
+  // dk = "YYYY-MM-DD" → returns "YYYY-Www" using ISO week
+  if(!dk)return null;
+  const d=new Date(dk+'T00:00:00');
+  if(isNaN(d))return null;
+  // ISO week calculation
+  const target=new Date(d.valueOf());
+  const dayNr=(d.getDay()+6)%7;
+  target.setDate(target.getDate()-dayNr+3);
+  const firstThursday=target.valueOf();
+  target.setMonth(0,1);
+  if(target.getDay()!==4)target.setMonth(0,1+((4-target.getDay())+7)%7);
+  const wk=1+Math.ceil((firstThursday-target)/(7*24*3600*1000));
+  return`${d.getFullYear()}-W${String(wk).padStart(2,'0')}`;
+}
+function getWeekRange(weekKey){
+  // Returns "DD MMM – DD MMM" for the given ISO week
+  const m=weekKey.match(/^(\d{4})-W(\d{2})$/);
+  if(!m)return weekKey;
+  const year=parseInt(m[1]),wk=parseInt(m[2]);
+  // Jan 4 is always in week 1
+  const jan4=new Date(year,0,4);
+  const jan4Day=(jan4.getDay()+6)%7;
+  const week1Mon=new Date(jan4);
+  week1Mon.setDate(jan4.getDate()-jan4Day);
+  const monday=new Date(week1Mon);
+  monday.setDate(week1Mon.getDate()+(wk-1)*7);
+  const sunday=new Date(monday);
+  sunday.setDate(monday.getDate()+6);
+  const fmt=d=>d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
+  return`${fmt(monday)} – ${fmt(sunday)}`;
+}
+function renderWoWSection(rows){
+  const{storeIdx}=_LS_IDX;
+  if(!rows||!rows.length)return'';
+  // Bucket by week
+  const byWeek={};
+  rows.forEach(r=>{
+    const dk=_lsSyncOn?r._syncedDk:r._dk;
+    if(!dk)return;
+    const wk=getWeekKey(dk);
+    if(!wk)return;
+    if(!byWeek[wk])byWeek[wk]={total:0,byRM:{},byCluster:{},byStore:{}};
+    byWeek[wk].total++;
+    const rm=r._rm||'Unknown';
+    byWeek[wk].byRM[rm]=(byWeek[wk].byRM[rm]||0)+1;
+    const wkStore=r._wkStore;
+    const cluster=wkStore?wkStore.cluster:'Unknown';
+    byWeek[wk].byCluster[cluster]=(byWeek[wk].byCluster[cluster]||0)+1;
+    const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
+    byWeek[wk].byStore[store]=(byWeek[wk].byStore[store]||0)+1;
+  });
+  const weeks=Object.keys(byWeek).sort();
+  if(weeks.length<2)return`
+    <div class="card"><div class="card-title">📅 Week-on-week comparison</div>
+      <p style="color:var(--muted);font-size:12px;padding:.5rem 0;">Need at least 2 weeks of data to show WoW comparison. Currently: ${weeks.length} week${weeks.length===1?` (${getWeekRange(weeks[0])})`:'s'}.</p>
+    </div>`;
+
+  // Build comparison: each row = RM/CM/Store, columns = each week + WoW% change (last vs prev)
+  const buildRows=(dim)=>{
+    const allKeys=new Set();
+    weeks.forEach(w=>Object.keys(byWeek[w][dim]).forEach(k=>allKeys.add(k)));
+    return[...allKeys].map(k=>{
+      const counts=weeks.map(w=>byWeek[w][dim][k]||0);
+      const prev=counts[counts.length-2]||0;
+      const curr=counts[counts.length-1]||0;
+      const total=counts.reduce((a,b)=>a+b,0);
+      const wowDelta=curr-prev;
+      const wowPct=prev>0?Math.round((curr-prev)/prev*100):(curr>0?100:0);
+      return{key:k,counts,total,prev,curr,wowDelta,wowPct};
+    }).filter(r=>r.total>0).sort((a,b)=>b.total-a.total);
+  };
+
+  const wowBadge=(delta,pct)=>{
+    if(delta===0)return'<span class="badge" style="background:#f0f0f0;color:var(--muted);">→ 0</span>';
+    if(delta>0)return`<span class="badge badge-red">▲ ${delta>0?'+':''}${delta} (${pct>0?'+':''}${pct}%)</span>`;
+    return`<span class="badge badge-green">▼ ${delta} (${pct}%)</span>`;
+  };
+
+  const buildTable=(label,dim,clickFn)=>{
+    const dimRows=buildRows(dim);
+    if(!dimRows.length)return'';
+    const headers=[label,...weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}</span>`),'Total','WoW Δ (last vs prev)'];
+    const tblRows=dimRows.map(r=>({
+      cells:[
+        clickFn?`<span class="clickable" onclick="${clickFn(r.key)}">${r.key}</span>`:`<strong>${r.key}</strong>`,
+        ...r.counts.map(c=>fi(c)),
+        `<strong>${fi(r.total)}</strong>`,
+        wowBadge(r.wowDelta,r.wowPct)
+      ]
+    }));
+    const totals=weeks.map(w=>byWeek[w].total);
+    const totFooter=['Total',...totals.map(c=>fi(c)),fi(totals.reduce((a,b)=>a+b,0)),wowBadge(totals[totals.length-1]-totals[totals.length-2],totals[totals.length-2]>0?Math.round((totals[totals.length-1]-totals[totals.length-2])/totals[totals.length-2]*100):0)];
+    return`<div class="card"><div class="card-title">📅 WoW comparison — by ${label.toLowerCase()}</div>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px;">Loss of sale entries collected per week. ▲ = increase (more loss), ▼ = decrease (less loss). Comparing last week vs previous.</p>
+      ${sortableTbl(headers,tblRows,totFooter)}
+    </div>`;
+  };
+
+  return`
+    <div class="card" style="background:#e6eefa;border-color:#b8c8e8;">
+      <div class="card-title" style="color:#1a3fa0;">📅 Week-on-week comparison · ${weeks.length} weeks loaded</div>
+      <p style="font-size:12px;color:#1a3fa0;margin:0;">Showing weeks: ${weeks.map(w=>getWeekRange(w)).join(' · ')}</p>
+    </div>
+    ${buildTable('RM','byRM',null)}
+    ${buildTable('Cluster','byCluster',null)}
+    ${buildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\\\'")}')`)}
+  `;
 }
 
 // ── LOSS DETAIL TAB ───────────────────────────────────────
@@ -633,7 +1148,7 @@ function renderLossDetail(){
   const{storeIdx,reasonIdx,catIdx,qtyIdx,valIdx,dateIdx}=_LS_IDX;
   const totalQty=qtyIdx>=0?rows.reduce((s,r)=>s+n(r[qtyIdx]),0):0;
   const totalVal=valIdx>=0?rows.reduce((s,r)=>s+n(r[valIdx]),0):0;
-  const allDKs=_LS_ROWS.map(r=>{const d=toAprilDay(r[dateIdx]);return d?dayKey(d):null;}).filter(Boolean);
+  const allDKs=_LS_ROWS.map(r=>{const dk=toDayKey(r[dateIdx]);return dk;}).filter(Boolean);
   const latestInSheet=allDKs.length?allDKs.reduce((a,b)=>a>b?a:b):null;
   const earliestInSheet=allDKs.length?allDKs.reduce((a,b)=>a<b?a:b):null;
   const lastWkDay=_WK&&_WK.days.length?_WK.days[_WK.days.length-1]:null;
@@ -831,6 +1346,49 @@ function renderCatAnalysis(){
         ['Total',fi(total),'','','','100%','']
       )}
     </div>
+
+    <!-- SPECIFIC REASON SUMMARY (col J) -->
+    ${(()=>{
+      const subRIdx=_LS_IDX.subReasonIdx;
+      if(subRIdx<0||subRIdx===reasonIdx)return ''; // no col J or it's the same as col I
+      // Group by col J value
+      const subMap={};
+      rows.forEach(r=>{
+        const v=String(r[subRIdx]||'').trim()||'(blank)';
+        if(!subMap[v])subMap[v]={c:0,stores:new Set(),cats:{},broadReasons:{}};
+        subMap[v].c++;
+        const store=storeIdx>=0?String(r[storeIdx]||''):'';
+        if(store)subMap[v].stores.add(store);
+        const cat=catIdx>=0?String(r[catIdx]||''):'';
+        if(cat)subMap[v].cats[cat]=(subMap[v].cats[cat]||0)+1;
+        const broadR=reasonIdx>=0?String(r[reasonIdx]||''):'';
+        if(broadR)subMap[v].broadReasons[broadR]=(subMap[v].broadReasons[broadR]||0)+1;
+      });
+      const subGrp=Object.entries(subMap).sort((a,b)=>b[1].c-a[1].c);
+      if(!subGrp.length)return '';
+      return`<div class="card">
+        <div class="card-title">Specific reason analysis (col J) — click reason to see store-wise list</div>
+        <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">${subGrp.length} unique specific reasons across ${fi(total)} loss entries.</p>
+        ${sortableTbl(
+          ['Specific reason (col J)','Count','Stores affected','Top broad reason (col I)','Top category','Share%','Alert'],
+          subGrp.map(([k,v])=>{
+            const sh=pct(v.c,total);
+            const topBR=Object.entries(v.broadReasons).sort((a,b)=>b[1]-a[1])[0];
+            const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+            return{cells:[
+              `<span class="clickable" onclick="showSubReasonModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+              fi(v.c),
+              fi(v.stores.size),
+              topBR?`${topBR[0]} (${topBR[1]})`:'—',
+              topC?`${topC[0]} (${topC[1]})`:'—',
+              `${sh}%`,
+              prAlert(sh)
+            ]};
+          }),
+          ['Total',fi(total),'','','','100%','']
+        )}
+      </div>`;
+    })()}
 
     <!-- SIZE ANALYSIS -->
     ${sizeGrp.length?`<div class="card">
@@ -1216,6 +1774,109 @@ window.showReasonModal=function(reason){
     )}`);
 };
 
+// ── SUB-REASON MODAL (col J) → store list ─────────────────
+window.showSubReasonModal=function(subReason){
+  const f=getFilters();
+  const{storeIdx,catIdx,reasonIdx,subReasonIdx,custIdx}=_LS_IDX;
+  if(subReasonIdx<0){alert('Specific reason column not found');return;}
+  const allFiltered=filterLS(f);
+  const rows=allFiltered.filter(r=>{
+    const v=String(r[subReasonIdx]||'').trim()||'(blank)';
+    return v===subReason;
+  });
+  const total=rows.length;
+
+  // Group by store with full details
+  const storeMap={};
+  rows.forEach(r=>{
+    const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
+    const cat=catIdx>=0?String(r[catIdx]||''):'';
+    const broadR=reasonIdx>=0?String(r[reasonIdx]||''):'';
+    const cust=custIdx>=0?String(r[custIdx]||''):'';
+    if(!storeMap[store])storeMap[store]={c:0,cats:{},broadReasons:{},custs:{},rm:'—',market:'—',cluster:'—'};
+    storeMap[store].c++;
+    if(cat)storeMap[store].cats[cat]=(storeMap[store].cats[cat]||0)+1;
+    if(broadR)storeMap[store].broadReasons[broadR]=(storeMap[store].broadReasons[broadR]||0)+1;
+    if(cust)storeMap[store].custs[cust]=(storeMap[store].custs[cust]||0)+1;
+    if(r._wkStore){storeMap[store].rm=r._wkStore.rm;storeMap[store].market=r._wkStore.market;storeMap[store].cluster=r._wkStore.cluster;}
+  });
+  const storeArr=Object.entries(storeMap).sort((a,b)=>b[1].c-a[1].c);
+
+  // Aggregations
+  const mktMap={};
+  rows.forEach(r=>{const mkt=r._wkStore?r._wkStore.market:'Unknown';mktMap[mkt]=(mktMap[mkt]||0)+1;});
+  const mktArr=Object.entries(mktMap).sort((a,b)=>b[1]-a[1]);
+
+  const catMap={};
+  rows.forEach(r=>{const c=catIdx>=0?String(r[catIdx]||'Unknown'):'Unknown';catMap[c]=(catMap[c]||0)+1;});
+  const catArr=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+
+  const broadRMap={};
+  rows.forEach(r=>{const br=reasonIdx>=0?String(r[reasonIdx]||'Unknown'):'Unknown';broadRMap[br]=(broadRMap[br]||0)+1;});
+  const broadRArr=Object.entries(broadRMap).sort((a,b)=>b[1]-a[1]);
+
+  const custMap={};
+  rows.forEach(r=>{const c=custIdx>=0?String(r[custIdx]||''):'';if(c)custMap[c]=(custMap[c]||0)+1;});
+  const custArr=Object.entries(custMap).sort((a,b)=>b[1]-a[1]);
+
+  const storeRows=storeArr.map(([k,v])=>{
+    const topCat=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+    const topBR=Object.entries(v.broadReasons).sort((a,b)=>b[1]-a[1])[0];
+    const custBreak=Object.entries(v.custs).map(([ck,cv])=>`${ck}:${cv}`).join(', ');
+    return{cells:[
+      `<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      v.market,v.cluster,v.rm,
+      `<strong style="font-size:14px;color:var(--red)">${fi(v.c)}</strong>`,
+      `${pct(v.c,total)}%`,
+      topBR?topBR[0]:'—',
+      topCat?topCat[0]:'—',
+      custBreak||'—'
+    ]};
+  });
+
+  openModal(`Specific reason: "${subReason}"`,`${fi(total)} entries · ${storeArr.length} stores · ${mktArr.length} markets`,`
+    <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric red"><div class="lbl">Total for this reason</div><div class="val">${fi(total)}</div><div class="sub">${pct(total,allFiltered.length)}% of all loss</div></div>
+      <div class="metric"><div class="lbl">Stores affected</div><div class="val">${storeArr.length}</div></div>
+      <div class="metric"><div class="lbl">Markets affected</div><div class="val">${mktArr.length}</div></div>
+      <div class="metric green"><div class="lbl">Top market</div><div class="val" style="font-size:14px">${mktArr[0]?mktArr[0][0]:'—'}</div><div class="sub">${mktArr[0]?fi(mktArr[0][1])+' entries':''}</div></div>
+    </div>
+
+    ${custArr.length?`
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1.25rem;">
+      ${custArr.map(([k,v])=>`
+        <div style="background:${k.toLowerCase().includes('new')?'#e6f5ee':k.toLowerCase().includes('repeat')?'#e6eefa':'#fff8e6'};border-radius:10px;padding:10px 18px;text-align:center;">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">${k}</div>
+          <div style="font-size:24px;font-weight:600;color:${k.toLowerCase().includes('new')?'var(--green)':k.toLowerCase().includes('repeat')?'var(--blue)':'var(--amber)'};">${fi(v)}</div>
+          <div style="font-size:11px;color:var(--muted);">${pct(v,total)}% of this reason</div>
+        </div>`).join('')}
+    </div>`:''}
+
+    <div class="two-col" style="margin-bottom:1rem;">
+      <div>
+        <div class="section-lbl">By broad reason (col I)</div>
+        ${sortableTbl(['Broad reason','Count','Share%'],
+          broadRArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+          ['Total',fi(total),'100%']
+        )}
+      </div>
+      <div>
+        <div class="section-lbl">By category</div>
+        ${sortableTbl(['Category','Count','Share%'],
+          catArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+          ['Total',fi(total),'100%']
+        )}
+      </div>
+    </div>
+
+    <div class="section-lbl">📋 Store-wise list — click a store name for full detail</div>
+    ${sortableTbl(
+      ['Store','Market','Cluster','RM','Count','Share%','Top broad reason','Top category','Customer type'],
+      storeRows,
+      ['Total','','','',fi(total),'100%','','','']
+    )}`);
+};
+
 // ── CATEGORY MODAL → store list ───────────────────────────
 window.showCategoryModal=function(category){
   const f=getFilters();
@@ -1294,6 +1955,78 @@ window.showCategoryModal=function(category){
       ['Store','Market','RM','Count','Share%','Top reason'],
       storeRows,
       ['Total','','',fi(total),'100%','']
+    )}`);
+};
+
+// ── RM MODAL — shows ALL stores under RM, including zero-walkin/zero-day ───
+window.showRMModal=function(rm){
+  const f=getFilters();
+  // ALL stores under this RM filtered by current cluster/market filters (NOT date — we want to see zero-day stores too)
+  const allRMStores=_WK.stores.filter(s=>
+    s.rm===rm&&
+    (!f.cluster||s.cluster===f.cluster)&&
+    (!f.market||s.market===f.market)
+  );
+  const filtLS=filterLS({...f,rm});
+  const{storeIdx}=_LS_IDX;
+  const storeRows=allRMStores.map(s=>{
+    const dRange=daysInRange(s.days,f);
+    const w=dRange.reduce((a,d)=>a+d.w,0);
+    const b=dRange.reduce((a,d)=>a+d.b,0);
+    const nb=w-b;
+    const cv=pct(b,w);
+    const daysWith=dRange.filter(d=>d.w>0).length;
+    const ls=filtLS.filter(r=>normStore(String(r[storeIdx]||''))===s.outletNorm).length;
+    return{...s,w,b,nb,cv,ls,lsPct:pct(ls,nb),daysWith,totalDays:dRange.length,zeroFlag:(w===0||daysWith===0)};
+  }).sort((a,b)=>{
+    // Zero-walkin stores at top, then by walkins desc
+    if(a.zeroFlag&&!b.zeroFlag)return -1;
+    if(!a.zeroFlag&&b.zeroFlag)return 1;
+    return b.w-a.w;
+  });
+  const tW=storeRows.reduce((s,r)=>s+r.w,0);
+  const tB=storeRows.reduce((s,r)=>s+r.b,0);
+  const tNB=tW-tB;
+  const tLS=storeRows.reduce((s,r)=>s+r.ls,0);
+  const zeroCount=storeRows.filter(s=>s.zeroFlag).length;
+  const activeCount=storeRows.length-zeroCount;
+  const dateLabel=_F.dateFrom||_F.dateTo?`${_F.dateFrom?fmtDK(_F.dateFrom):'Start'} → ${_F.dateTo?fmtDK(_F.dateTo):'End'}`:'';
+  const af=[f.cluster?`Cluster: ${f.cluster}`:'',f.market?`Market: ${f.market}`:'',dateLabel].filter(Boolean).join(' · ');
+
+  const tblRows=storeRows.map(s=>({
+    cells:[
+      `<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,
+      s.market||'—',
+      s.cluster||'—',
+      s.type||'—',
+      s.daysWith===0?`<span class="badge badge-red">0 days</span>`:`${s.daysWith}/${s.totalDays}`,
+      s.w===0?`<span class="badge badge-red">0</span>`:fi(s.w),
+      fi(s.b),
+      fi(s.nb),
+      s.w>0?`<span class="badge ${bc(s.cv)}">${s.cv}%</span>`:'—',
+      fi(s.ls),
+      s.nb>0?`<span class="badge ${bc(s.lsPct)}">${s.lsPct}%</span>`:'—',
+      s.zeroFlag?`<span class="badge badge-red">🔴 No walkin data</span>`:`<span class="badge badge-green">✓ Active</span>`
+    ],
+    _cls:s.zeroFlag?'audit-red':''
+  }));
+
+  openModal(`RM: ${rm} — store breakdown`,`${storeRows.length} stores · ${activeCount} active · ${zeroCount} with no walkin data ${af?'· '+af:''}`,`
+    <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric"><div class="lbl">Total stores</div><div class="val">${storeRows.length}</div><div class="sub">${activeCount} active</div></div>
+      <div class="metric red"><div class="lbl">🔴 Zero walkins</div><div class="val">${zeroCount}</div><div class="sub">stores not reporting</div></div>
+      <div class="metric blue"><div class="lbl">Walkins</div><div class="val">${fi(tW)}</div><div class="sub">${pct(tB,tW)}% conv</div></div>
+      <div class="metric amber"><div class="lbl">Loss captured</div><div class="val">${fi(tLS)}</div><div class="sub">${pct(tLS,tNB)}% coverage</div></div>
+    </div>
+    ${zeroCount>0?`<div style="background:#fff5f5;border:1px solid #fdeaea;border-left:4px solid var(--red);border-radius:10px;padding:10px 14px;margin-bottom:1rem;font-size:12px;color:#a32020;">
+      🔴 <strong>${zeroCount} store${zeroCount>1?'s have':' has'} zero walkin entries</strong> in the selected period — highlighted at the top of the table below.
+    </div>`:''}
+    <div class="section-lbl">Store-wise detail (zero-walkin stores shown first)</div>
+    ${sortableTbl(
+      ['Store','Market','Cluster','Type','Days w/ data','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Status'],
+      tblRows,
+      ['Total','','','','',fi(tW),fi(tB),fi(tNB),`<span class="badge ${bc(pct(tB,tW))}">${pct(tB,tW)}%</span>`,fi(tLS),`<span class="badge ${bc(pct(tLS,tNB))}">${pct(tLS,tNB)}%</span>`,''],
+      r=>r._cls
     )}`);
 };
 
@@ -1448,34 +2181,158 @@ window.showStoreModal=function(storeName){
 };
 
 // ── INIT ──────────────────────────────────────────────────
-async function init(){
-  const wkPill=addPill('Walkins — loading...','pill-wait');
-  const lsPill=addPill('Loss of Sale — loading...','pill-wait');
-  try{
-    const wkRaw=await fetchTab('Walkins from Yallappa');
-    _WK=parseWalkins(wkRaw.headers,wkRaw.rows);
-    const lastWkDay=_WK.days.length?_WK.days[_WK.days.length-1]:null;
-    wkPill.className='pill pill-ok';
-    wkPill.textContent=`Walkins — ${_WK.stores.length} stores · till ${lastWkDay?fmtDK(lastWkDay.dk):'—'}`;
-  }catch(e){wkPill.className='pill pill-err';wkPill.textContent='Walkins — error: '+e.message;}
-  try{
-    const lsRaw=await fetchTab('Loss of sale data APR');
-    parseLoss(lsRaw.headers,lsRaw.rows);
-    const totalLS=Object.values(_LS_DAY_MAP).reduce((s,v)=>s+v,0);
-    const lastWkDay=_WK&&_WK.days.length?_WK.days[_WK.days.length-1]:null;
-    lsPill.className='pill pill-ok';
-    lsPill.textContent=`Loss of Sale — ${lsRaw.rows.length} total · ${totalLS} synced till ${lastWkDay?fmtDK(lastWkDay.dk):'—'}`;
-  }catch(e){lsPill.className='pill pill-err';lsPill.textContent='Loss of Sale — error: '+e.message;}
+// ── MONTH DATA STORE ──────────────────────────────────────
+const _MONTH_DATA={};
 
-  if(_WK&&_LS_ROWS.length){
-    buildFilterBar();
-    renderAll();
-  }else if(_WK){
-    buildFilterBar();
-    renderOverview();
+async function loadMonth(key){
+  const cfg=MONTHS[key];
+  if(!cfg)return;
+  const pill=addPill(`${cfg.label} — loading...`,'pill-wait');
+  try{
+    // Load walkins
+    const wkRaw=await fetchTab(cfg.wkTab);
+    if(wkRaw.error){throw new Error(wkRaw.error);}
+    const wkRowCount=(wkRaw.rows||[]).length;
+    const wkHdrCount=(wkRaw.headers||[]).length;
+    const wk=parseWalkins(wkRaw.headers||[],wkRaw.rows||[]);
+    // Load loss of sale
+    const lsRaw=await fetchTab(cfg.lsTab);
+    if(lsRaw.error){throw new Error(lsRaw.error);}
+    _MONTH_DATA[key]={wk,lsHeaders:lsRaw.headers||[],lsRows:lsRaw.rows||[]};
+    const lsRowCount=(lsRaw.rows||[]).length;
+    if(wkRowCount===0&&wkHdrCount===0){
+      // Tab exists but is empty — neutral info pill, NOT an error. Still keep LS data.
+      pill.className='pill pill-info';
+      pill.textContent=`${cfg.label} · Walkins tab empty · ${fi(lsRowCount)} LS rows`;
+    }else if(wk.stores.length===0&&wkRowCount>0){
+      // Tab has data but parser couldn't extract — real warning
+      pill.className='pill pill-err';
+      pill.textContent=`${cfg.label} ⚠️ "${cfg.wkTab}" has ${wkRowCount} rows but parser found 0 stores. Check console.`;
+      console.error(`[loadMonth] ${key}: parseWalkins returned 0 stores. First headers:`,(wkRaw.headers||[]).slice(0,15),'· first row:',(wkRaw.rows||[])[0]);
+    }else{
+      pill.className='pill pill-ok';
+      pill.textContent=`${cfg.label} · ${wk.stores.length} stores · ${fi(lsRowCount)} LS rows`;
+    }
+  }catch(e){
+    pill.className='pill pill-err';
+    pill.textContent=`${cfg.label} — ${e.message}`;
+    _MONTH_DATA[key]=null;
   }
-  const lastWkDay=_WK&&_WK.days.length?_WK.days[_WK.days.length-1]:null;
-  document.getElementById('topbar-meta').textContent=`Apr 2026 · Walkins & Loss synced till ${lastWkDay?fmtDK(lastWkDay.dk):'—'} · Live`;
+}
+
+function mergeMonths(keys){
+  const storeMap={};
+  const allLSRows=[];
+  let lsHeaders=[];
+  const dayMap={};
+
+  keys.forEach(key=>{
+    const d=_MONTH_DATA[key];
+    if(!d)return;
+    // Merge stores
+    (d.wk.stores||[]).forEach(s=>{
+      if(!storeMap[s.outletNorm]){
+        storeMap[s.outletNorm]={...s,days:[...s.days]};
+      } else {
+        storeMap[s.outletNorm].days=[...storeMap[s.outletNorm].days,...s.days];
+        storeMap[s.outletNorm].totalW+=s.totalW;
+        storeMap[s.outletNorm].totalB+=s.totalB;
+      }
+    });
+    // Merge days
+    (d.wk.days||[]).forEach(day=>{
+      if(!dayMap[day.dk])dayMap[day.dk]={dk:day.dk,dayNum:day.dayNum,w:0,b:0};
+      dayMap[day.dk].w+=day.w;
+      dayMap[day.dk].b+=day.b;
+    });
+    // Merge LS rows
+    allLSRows.push(...(d.lsRows||[]));
+    if((d.lsHeaders||[]).length>(lsHeaders||[]).length)lsHeaders=d.lsHeaders;
+  });
+
+  const stores=Object.values(storeMap);
+  const days=Object.values(dayMap).sort((a,b)=>a.dk.localeCompare(b.dk));
+  const rms=[...new Set(stores.map(s=>s.rm).filter(Boolean))].sort();
+  const clusters=[...new Set(stores.map(s=>s.cluster).filter(Boolean))].sort();
+  const markets=[...new Set(stores.map(s=>s.market).filter(Boolean))].sort();
+  const dks=days.map(d=>d.dk);
+  // Rebuild store→RM map
+  stores.forEach(s=>{_STORE_RM[s.outletNorm]=s.rm;});
+  return{wk:{stores,days,rms,clusters,markets,dks},lsHeaders,lsRows:allLSRows};
+}
+
+function applyMonthFilter(){
+  const sel=_F.month||'all';
+  const keys=sel==='all'?_activeMonths:[sel];
+  const available=keys.filter(k=>_MONTH_DATA[k]);
+  if(!available.length){console.warn('[applyMonthFilter] no months available for selection:',sel);return false;}
+  try{
+    const merged=mergeMonths(available);
+    _WK=merged.wk;
+    parseLoss(merged.lsHeaders,merged.lsRows);
+    console.log('[applyMonthFilter] OK · selection=',sel,'· stores=',_WK.stores.length,'days=',_WK.days.length,'LS rows=',_LS_ROWS.length);
+    return true;
+  }catch(e){
+    console.error('[applyMonthFilter] FAILED:',e.message,e.stack);
+    return false;
+  }
+}
+
+async function init(){
+  document.getElementById('ov').innerHTML='<div class="loading">Discovering sheet tabs...</div>';
+  document.getElementById('ls').innerHTML='<div class="loading">Loading...</div>';
+  document.getElementById('topbar-meta').textContent='Discovering sheet tabs...';
+  console.log('[init] starting');
+
+  // ── STEP 1: AUTO-DISCOVER MONTHS ──────────────────────
+  let discoveryInfo;
+  try{
+    discoveryInfo=await discoverMonths();
+  }catch(e){
+    console.error('[init] discoverMonths FAILED:',e.message);
+    document.getElementById('ov').innerHTML=`<div class="err-card">
+      ❌ <strong>Could not discover sheet tabs.</strong><br>
+      ${e.message.includes('list=tabs')?'Your Apps Script needs to be updated to support the <code>?list=tabs</code> endpoint. Paste the new Apps Script code I provided and redeploy.':e.message}
+    </div>`;
+    document.getElementById('topbar-meta').textContent='Error — discovery failed';
+    return;
+  }
+  if(!_activeMonths.length){
+    document.getElementById('ov').innerHTML=`<div class="err-card">
+      ❌ <strong>No paired month tabs found.</strong><br>
+      Each month needs BOTH a <code>Walkins &lt;MONTH&gt;</code> and <code>Loss of sale data &lt;MONTH&gt;</code> tab.<br>
+      ${discoveryInfo.unpaired.length?`<br>Found these unpaired tabs:<br><pre style="font-size:11px;white-space:pre-wrap;">${discoveryInfo.unpaired.map(([k,v])=>`${k} → walkin: ${v.wkTab||'MISSING'} | loss: ${v.lsTab||'MISSING'}`).join('\n')}</pre>`:''}
+    </div>`;
+    document.getElementById('topbar-meta').textContent='Error — no months discovered';
+    return;
+  }
+  document.getElementById('topbar-meta').textContent=`Loading ${_activeMonths.length} month${_activeMonths.length>1?'s':''}...`;
+
+  // ── STEP 2: LOAD ALL DISCOVERED MONTHS IN PARALLEL ────
+  await Promise.all(_activeMonths.map(k=>loadMonth(k)));
+  console.log('[init] all months loaded:',_activeMonths.map(k=>`${k}=${_MONTH_DATA[k]?'OK':'FAILED'}`));
+
+  // ── STEP 3: APPLY FILTER + RENDER ─────────────────────
+  _F.month='all';
+  const available=_activeMonths.filter(k=>_MONTH_DATA[k]);
+  if(available.length===0){
+    document.getElementById('ov').innerHTML='<div class="err-card">❌ Could not load any month data. Check pills above for details.</div>';
+    document.getElementById('topbar-meta').textContent='Error — no data loaded';
+    return;
+  }
+  const loaded=available.map(k=>MONTHS[k].label).join(' + ');
+  document.getElementById('topbar-meta').textContent=`${loaded} · Live from Google Sheets`;
+
+  if(applyMonthFilter()){
+    try{buildFilterBar();console.log('[init] buildFilterBar OK');}
+    catch(e){console.error('[init] buildFilterBar FAILED:',e.message,e.stack);
+      document.getElementById('global-filter-bar').innerHTML=`<div class="err-card">⚠️ Filter bar failed: ${e.message}</div>`;}
+    try{renderAll();console.log('[init] renderAll OK · DONE');}
+    catch(e){console.error('[init] renderAll FAILED:',e.message,e.stack);
+      document.getElementById('ov').innerHTML=`<div class="err-card">⚠️ Render failed: <strong>${e.message}</strong><br><pre style="font-size:11px;white-space:pre-wrap;margin-top:.5rem;">${e.stack||''}</pre></div>`;}
+  }else{
+    document.getElementById('ov').innerHTML='<div class="err-card">❌ Data loaded but processing failed. Check console (F12) for details.</div>';
+  }
 }
 init();
 </script>
