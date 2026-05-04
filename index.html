@@ -231,12 +231,26 @@ function mobStatus(val){
 }
 function normStore(s){return String(s||'').replace(/\s*\([^)]*\)\s*$/,'').trim().toUpperCase();}
 
+// ── CUSTOMER TYPE COUNTER ─────────────────────────────────
+function getCustCounts(rows){
+  const{custIdx}=_LS_IDX;
+  if(custIdx<0)return{new:0,repeat:0,other:0};
+  let nw=0,rp=0,ot=0;
+  rows.forEach(r=>{
+    const c=String(r[custIdx]||'').toLowerCase();
+    if(c.includes('new'))nw++;
+    else if(c.includes('repeat'))rp++;
+    else if(c)ot++;
+  });
+  return{new:nw,repeat:rp,other:ot};
+}
+
 // ── GLOBAL STATE ──────────────────────────────────────────
 let _WK=null,_LS_ROWS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={};
 let _lsSyncOn=false; // toggle: false = Loss tab shows ALL data
 
 // ── FILTER STATE — stored in object, not just DOM ─────────
-let _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:''};
+let _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:'',custType:''};
 
 function getFilters(){return{..._F};}
 
@@ -245,8 +259,8 @@ function setFilter(key,val){
   renderAll();
 }
 function resetFilters(){
-  _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:''};
-  ['f-date-from','f-date-to','f-cluster','f-rm','f-market','f-store','f-reason'].forEach(id=>{
+  _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:'',custType:''};
+  ['f-date-from','f-date-to','f-cluster','f-rm','f-market','f-store','f-reason','f-cust-type'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
   buildFilterBar();
@@ -344,7 +358,7 @@ function filterStores(stores,f){
 
 // filterLS: for Overview/Audit/LossDetail — always uses synced dates
 function filterLS(f){
-  const{storeIdx,reasonIdx}=_LS_IDX;
+  const{storeIdx,reasonIdx,custIdx}=_LS_IDX;
   return _LS_ROWS.filter(r=>{
     if(!r._syncedDk)return false;
     if(!dateInRange(r._syncedDk,f))return false;
@@ -355,13 +369,14 @@ function filterLS(f){
     if(f.market&&(!wkStore||wkStore.market!==f.market))return false;
     if(f.store&&storeIdx>=0&&String(r[storeIdx]||'')!==f.store)return false;
     if(f.reason&&reasonIdx>=0&&String(r[reasonIdx]||'')!==f.reason)return false;
+    if(f.custType&&custIdx>=0&&String(r[custIdx]||'')!==f.custType)return false;
     return true;
   });
 }
 
 // filterLSTab: for Loss of Sale tab — respects toggle
 function filterLSTab(f){
-  const{storeIdx,reasonIdx}=_LS_IDX;
+  const{storeIdx,reasonIdx,custIdx}=_LS_IDX;
   return _LS_ROWS.filter(r=>{
     if(_lsSyncOn&&!r._syncedDk)return false;
     const dk=_lsSyncOn?r._syncedDk:r._dk;
@@ -373,6 +388,7 @@ function filterLSTab(f){
     if(f.market&&(!wkStore||wkStore.market!==f.market))return false;
     if(f.store&&storeIdx>=0&&String(r[storeIdx]||'')!==f.store)return false;
     if(f.reason&&reasonIdx>=0&&String(r[reasonIdx]||'')!==f.reason)return false;
+    if(f.custType&&custIdx>=0&&String(r[custIdx]||'')!==f.custType)return false;
     return true;
   });
 }
@@ -381,9 +397,10 @@ function filterLSTab(f){
 function buildFilterBar(){
   if(!_WK||!_LS_IDX||_LS_IDX.dateIdx===undefined)return;
   const{dks,rms,clusters,markets,stores}=_WK;
-  const{reasonIdx}=_LS_IDX;
+  const{reasonIdx,custIdx}=_LS_IDX;
   const storeNames=[...new Set(stores.map(s=>s.outlet).filter(Boolean))].sort();
   const reasons=reasonIdx>=0?[...new Set(_LS_ROWS.map(r=>String(r[reasonIdx]||'')).filter(Boolean))].sort():[];
+  const custTypes=custIdx>=0?[...new Set(_LS_ROWS.map(r=>String(r[custIdx]||'')).filter(Boolean))].sort():[];
   const lastWkDay=_WK.days.length?_WK.days[_WK.days.length-1]:null;
   const totalLSSynced=Object.values(_LS_DAY_MAP).reduce((s,v)=>s+v,0);
   const totalLSAll=_LS_ROWS.length;
@@ -425,6 +442,11 @@ function buildFilterBar(){
         <option value="">All reasons</option>
         ${reasons.map(r=>`<option${_F.reason===r?' selected':''}>${r}</option>`).join('')}
       </select>
+      ${custTypes.length?`<label>Customer:</label>
+      <select id="f-cust-type" onchange="_F.custType=this.value;renderAll()">
+        <option value="">All types</option>
+        ${custTypes.map(c=>`<option${_F.custType===c?' selected':''}>${c}</option>`).join('')}
+      </select>`:''}
       <div style="width:1px;height:20px;background:var(--border);flex-shrink:0;"></div>
       <label>LS Sync:</label>
       <label class="switch">
@@ -485,8 +507,12 @@ function renderOverview(){
   filtLS.forEach(r=>{if(r._syncedDk&&filtDayMap[r._syncedDk])filtDayMap[r._syncedDk].ls++;});
   const dayRows=Object.values(filtDayMap).sort((a,b)=>a.dayNum-b.dayNum);
 
-  const mktTblRows=mktArr.map(([mkt,v])=>{const nb=v.w-v.b;const cv=pct(v.b,v.w);const lsPct=pct(v.ls,nb);
-    return{cells:[`<span class="clickable" onclick="showMarketModal('${mkt.replace(/'/g,"\\'")}')">${mkt}</span>`,fi(v.w),fi(v.b),fi(nb),`<span class="badge ${bc(cv)}">${cv}%</span>`,fi(v.ls),`<span class="badge ${bc(lsPct)}">${lsPct}%</span>`]};});
+  const mktTblRows=mktArr.map(([mkt,v])=>{
+    const nb=v.w-v.b;const cv=pct(v.b,v.w);const lsPct=pct(v.ls,nb);
+    const mktLSRows=filtLS.filter(r=>r._wkStore&&r._wkStore.market===mkt);
+    const cc=getCustCounts(mktLSRows);
+    return{cells:[`<span class="clickable" onclick="showMarketModal('${mkt.replace(/'/g,"\\'")}')">${mkt}</span>`,fi(v.w),fi(v.b),fi(nb),`<span class="badge ${bc(cv)}">${cv}%</span>`,fi(v.ls),`<span class="badge ${bc(lsPct)}">${lsPct}%</span>`,fi(cc.new),fi(cc.repeat)]};});
+
   const dayTblRows=dayRows.map(d=>{const nb=d.w-d.b;const conv=pct(d.b,d.w);const lsPct=pct(d.ls,nb);
     return{cells:[`<strong>${fmtDK(d.dk)}</strong>`,fi(d.w),fi(d.b),`<span class="badge ${bc(conv)}">${conv}%</span>`,fi(nb),fi(d.ls),`<span class="badge ${bc(lsPct)}">${lsPct}%</span>`]};});
 
@@ -498,7 +524,7 @@ function renderOverview(){
       <div class="metric amber"><div class="lbl">Loss captured</div><div class="val">${fi(totalLS)}</div><div class="sub">${lsCov}% of non-buyers</div></div>
     </div>
     <div class="card"><div class="card-title">Market summary — click market for store details</div>
-      ${sortableTbl(['Market','Walkins','Bills','Non-buyers','Conv%','Loss captured','Coverage%'],mktTblRows,['Total',fi(totalW),fi(totalB),fi(totalNB),`<span class="badge ${bc(avgConv)}">${avgConv}%</span>`,fi(totalLS),`<span class="badge ${bc(lsCov)}">${lsCov}%</span>`])}
+      ${sortableTbl(['Market','Walkins','Bills','Non-buyers','Conv%','Loss captured','Coverage%','🆕 New','🔁 Repeat'],mktTblRows,['Total',fi(totalW),fi(totalB),fi(totalNB),`<span class="badge ${bc(avgConv)}">${avgConv}%</span>`,fi(totalLS),`<span class="badge ${bc(lsCov)}">${lsCov}%</span>`,'',''])}
     </div>
     <div class="card"><div class="card-title">Day-wise summary</div>
       ${sortableTbl(['Date','Walkins','Bills','Conv%','Non-buyers','Loss captured','Coverage%'],dayTblRows,['Total',fi(totalW),fi(totalB),`<span class="badge ${bc(avgConv)}">${avgConv}%</span>`,fi(totalNB),fi(totalLS),`<span class="badge ${bc(lsCov)}">${lsCov}%</span>`])}
@@ -578,10 +604,25 @@ function renderLoss(){
     <div class="card"><div class="card-title">Loss by reason — click reason to see store breakdown</div>${sortableTbl(mkHdr('Reason'),mkRows(rGrp,prAlert,k=>`showReasonModal('${k.replace(/'/g,"\\'")}')`),mkFtr())}</div>
     <div class="card"><div class="card-title">Loss by category — click category to see store breakdown</div>${sortableTbl(mkHdr('Category'),mkRows(cGrp,prAlert,k=>`showCategoryModal('${k.replace(/'/g,"\\'")}')`),mkFtr())}</div>
     <div class="card"><div class="card-title">Loss by store — click store name for detailed report</div>
-      ${sortableTbl(mkHdr('Store'),mkRows(sGrp,stAlert,k=>`showStoreModal('${k.replace(/'/g,"\\'")}')`),mkFtr())}
+      ${sortableTbl([...mkHdr('Store'),'🆕 New','🔁 Repeat'],
+        sGrp.map(([k,v])=>{
+          const sh=pct(v.c,total);
+          const storeRows=rows.filter(r=>storeIdx>=0&&String(r[storeIdx]||'')===k);
+          const cc=getCustCounts(storeRows);
+          return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,stAlert(sh),`<span style="color:var(--green);font-weight:600">${fi(cc.new)}</span>`,`<span style="color:var(--blue);font-weight:600">${fi(cc.repeat)}</span>`]};
+        }),
+        [...mkFtr(),'','']
+      )}
     </div>
     <div class="card"><div class="card-title">Loss by regional manager</div>
-      ${sortableTbl(['RM','Count',...(qtyIdx>=0?['Qty']:[]),...(valIdx>=0?['Value']:[]),'Share%','Alert'],rmGrp.map(([k,v])=>{const sh=pct(v.c,total);return{cells:[`<strong>${k}</strong>`,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Watch</span>':'<span class="badge badge-green">OK</span>']};}))}</div>`;
+      ${sortableTbl(['RM','Count',...(qtyIdx>=0?['Qty']:[]),...(valIdx>=0?['Value']:[]),'Share%','Alert','🆕 New','🔁 Repeat'],
+        rmGrp.map(([k,v])=>{
+          const sh=pct(v.c,total);
+          const rmRows=rows.filter(r=>r._rm===k);
+          const cc=getCustCounts(rmRows);
+          return{cells:[`<strong>${k}</strong>`,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Watch</span>':'<span class="badge badge-green">OK</span>',`<span style="color:var(--green);font-weight:600">${fi(cc.new)}</span>`,`<span style="color:var(--blue);font-weight:600">${fi(cc.repeat)}</span>`]};
+        })
+      )}</div>`;
 }
 
 // ── LOSS DETAIL TAB ───────────────────────────────────────
