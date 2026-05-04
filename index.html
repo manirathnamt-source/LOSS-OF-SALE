@@ -292,6 +292,7 @@ function parseLoss(headers,rows){
     phoneIdx:  ep('phone number',['phone number','phone','mobile','contact']),
     timingIdx: ep('timing',['timing','time']),
     empIdx:    ep('employee',['employee name','employee','emp','staff','executive','se','salesperson']),
+    custIdx:   ep('customer type',['customer type','cust type','customer','new','repeat','visitor type']),
     subCatIdx: ep('product sub category',['product sub category','sub category','subcategory']),
     sizeIdx:   ep('size',['size']),styleIdx:ep('style',['style']),
     colorIdx:  ep('color',['color','colour']),polishIdx:ep('polish',['polish']),
@@ -518,7 +519,9 @@ function renderLoss(){
   const topR=rGrp[0],topC=cGrp[0],topS=sGrp[0],topRM=rmGrp[0],lowS=sGrp[sGrp.length-1];
   const top3Pct=pct(rGrp.slice(0,3).reduce((s,x)=>s+x[1].c,0),total);
   const validM=rows.filter(r=>r._mob==='valid').length,invL=rows.filter(r=>r._mob==='invalid_length').length,invJ=rows.filter(r=>r._mob==='invalid_junk').length,missM=rows.filter(r=>r._mob==='missing').length;
-  const hourMap={};rows.forEach(r=>{if(r._time){if(!hourMap[r._time])hourMap[r._time]=0;hourMap[r._time]++;}});
+  const custIdx2=_LS_IDX.custIdx;
+  const custMap={};rows.forEach(r=>{const c=custIdx2>=0?String(r[custIdx2]||''):'';if(c)custMap[c]=(custMap[c]||0)+1;});
+  const custArr=Object.entries(custMap).sort((a,b)=>b[1]-a[1]);
   const hourArr=Object.entries(hourMap).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
   const topHour=hourArr.length?hourArr.reduce((a,b)=>a[1]>b[1]?a:b):null;
   const dayMapLS={};rows.forEach(r=>{const dk=_lsSyncOn?r._syncedDk:r._dk;if(dk){if(!dayMapLS[dk])dayMapLS[dk]=0;dayMapLS[dk]++;}});
@@ -553,6 +556,16 @@ function renderLoss(){
         <div class="metric amber"><div class="lbl">Missing</div><div class="val">${fi(missM)}</div><div class="sub">blank</div></div>
       </div>
     </div>
+    ${custArr.length?`<div class="card"><div class="card-title">👤 Customer type breakdown</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        ${custArr.map(([k,v])=>`
+          <div style="background:${k.toLowerCase().includes('new')?'#e6f5ee':k.toLowerCase().includes('repeat')?'#e6eefa':'#fff8e6'};border-radius:var(--radius);padding:1rem 1.5rem;text-align:center;min-width:140px;">
+            <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:6px;">${k}</div>
+            <div style="font-size:28px;font-weight:600;color:${k.toLowerCase().includes('new')?'var(--green)':k.toLowerCase().includes('repeat')?'var(--blue)':'var(--amber)'};">${fi(v)}</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">${pct(v,total)}% of total loss</div>
+          </div>`).join('')}
+      </div>
+    </div>`:''}
     <div class="card"><div class="card-title">⏰ Loss by timing${topHour?` — Peak: ${topHour[0]} (${fi(topHour[1])} entries)`:''}</div>
       ${hourArr.length?sortableTbl(['Time slot','Count','Share%','Level'],hourArr.map(([h,c])=>({cells:[h,fi(c),`${pct(c,rows.filter(r=>r._time).length)}%`,topHour&&h===topHour[0]?'<span class="badge badge-red">Peak</span>':c>=(topHour?topHour[1]*.7:0)?'<span class="badge badge-amber">High</span>':'<span class="badge badge-green">Normal</span>']}))):`<p style="color:var(--muted);font-size:12px;">No timing data.</p>`}
     </div>
@@ -1066,51 +1079,74 @@ function buildWkDayMap(wkStores,f){
   return m;
 }
 
-// ── REASON MODAL → store list ─────────────────────────────
+// ── REASON MODAL → store list with count ──────────────────
 window.showReasonModal=function(reason){
   const f=getFilters();
-  const{storeIdx,catIdx,reasonIdx,qtyIdx}=_LS_IDX;
+  const{storeIdx,catIdx,reasonIdx,custIdx}=_LS_IDX;
   const rows=filterLS(f).filter(r=>reasonIdx>=0&&String(r[reasonIdx]||'')===reason);
   const total=rows.length;
 
-  // Group by store
+  // Group by store with full details
   const storeMap={};
   rows.forEach(r=>{
     const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
     const cat=catIdx>=0?String(r[catIdx]||''):'';
-    if(!storeMap[store])storeMap[store]={c:0,cats:{},rm:'—',market:'—'};
+    const cust=custIdx>=0?String(r[custIdx]||''):'';
+    if(!storeMap[store])storeMap[store]={c:0,cats:{},custs:{},rm:'—',market:'—'};
     storeMap[store].c++;
     if(cat)storeMap[store].cats[cat]=(storeMap[store].cats[cat]||0)+1;
-    const wkStore=r._wkStore;
-    if(wkStore){storeMap[store].rm=wkStore.rm;storeMap[store].market=wkStore.market;}
+    if(cust)storeMap[store].custs[cust]=(storeMap[store].custs[cust]||0)+1;
+    if(r._wkStore){storeMap[store].rm=r._wkStore.rm;storeMap[store].market=r._wkStore.market;}
   });
   const storeArr=Object.entries(storeMap).sort((a,b)=>b[1].c-a[1].c);
 
   // Group by market
   const mktMap={};
-  rows.forEach(r=>{
-    const mkt=r._wkStore?r._wkStore.market:'Unknown';
-    if(!mktMap[mkt])mktMap[mkt]=0;mktMap[mkt]++;
-  });
+  rows.forEach(r=>{const mkt=r._wkStore?r._wkStore.market:'Unknown';if(!mktMap[mkt])mktMap[mkt]=0;mktMap[mkt]++;});
   const mktArr=Object.entries(mktMap).sort((a,b)=>b[1]-a[1]);
+
+  // Group by category
+  const catMap={};
+  rows.forEach(r=>{const c=catIdx>=0?String(r[catIdx]||'Unknown'):'Unknown';if(!catMap[c])catMap[c]=0;catMap[c]++;});
+  const catArr=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+
+  // Customer type for this reason
+  const custMap={};
+  rows.forEach(r=>{const c=custIdx>=0?String(r[custIdx]||'Unknown'):'Unknown';if(!custMap[c])custMap[c]=0;custMap[c]++;});
+  const custArr=Object.entries(custMap).filter(([k])=>k&&k!=='Unknown').sort((a,b)=>b[1]-a[1]);
 
   const storeRows=storeArr.map(([k,v])=>{
     const topCat=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+    const custBreak=Object.entries(v.custs).map(([ck,cv])=>`${ck}:${cv}`).join(', ');
     return{cells:[
       `<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
-      v.market,v.rm,fi(v.c),`${pct(v.c,total)}%`,
-      topCat?topCat[0]:'—'
+      v.market,v.rm,
+      `<strong style="font-size:14px;color:var(--red)">${fi(v.c)}</strong>`,
+      `${pct(v.c,total)}%`,
+      topCat?topCat[0]:'—',
+      custBreak||'—'
     ]};
   });
 
-  openModal(`Reason: ${reason}`,`${fi(total)} entries across ${storeArr.length} stores · ${mktArr.length} markets`,`
+  openModal(`Reason: "${reason}"`,`${fi(total)} entries · ${storeArr.length} stores · ${mktArr.length} markets`,`
     <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
-      <div class="metric amber"><div class="lbl">Total entries</div><div class="val">${fi(total)}</div></div>
+      <div class="metric red"><div class="lbl">Total for this reason</div><div class="val">${fi(total)}</div><div class="sub">${pct(total,filterLS(f).length)}% of all loss</div></div>
       <div class="metric"><div class="lbl">Stores affected</div><div class="val">${storeArr.length}</div></div>
       <div class="metric"><div class="lbl">Markets affected</div><div class="val">${mktArr.length}</div></div>
-      <div class="metric"><div class="lbl">% of total loss</div><div class="val">${pct(total,filterLS(f).length)}%</div></div>
+      <div class="metric green"><div class="lbl">Top market</div><div class="val" style="font-size:14px">${mktArr[0]?mktArr[0][0]:'—'}</div><div class="sub">${mktArr[0]?fi(mktArr[0][1])+' entries':''}</div></div>
     </div>
-    <div class="two-col">
+
+    ${custArr.length?`
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1.25rem;">
+      ${custArr.map(([k,v])=>`
+        <div style="background:${k.toLowerCase().includes('new')?'#e6f5ee':k.toLowerCase().includes('repeat')?'#e6eefa':'#fff8e6'};border-radius:10px;padding:10px 18px;text-align:center;">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">${k}</div>
+          <div style="font-size:24px;font-weight:600;color:${k.toLowerCase().includes('new')?'var(--green)':k.toLowerCase().includes('repeat')?'var(--blue)':'var(--amber)'};">${fi(v)}</div>
+          <div style="font-size:11px;color:var(--muted);">${pct(v,total)}% of this reason</div>
+        </div>`).join('')}
+    </div>`:''}
+
+    <div class="two-col" style="margin-bottom:1rem;">
       <div>
         <div class="section-lbl">By market</div>
         ${sortableTbl(['Market','Count','Share%'],
@@ -1119,18 +1155,19 @@ window.showReasonModal=function(reason){
         )}
       </div>
       <div>
-        <div class="section-lbl">Top categories for this reason</div>
-        ${(()=>{const cm={};rows.forEach(r=>{const c=catIdx>=0?String(r[catIdx]||'Unknown'):'Unknown';cm[c]=(cm[c]||0)+1;});
-          return sortableTbl(['Category','Count','Share%'],
-            Object.entries(cm).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
-            ['Total',fi(total),'100%']);})()}
+        <div class="section-lbl">By category</div>
+        ${sortableTbl(['Category','Count','Share%'],
+          catArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+          ['Total',fi(total),'100%']
+        )}
       </div>
     </div>
-    <div class="section-lbl">Store-wise breakdown — click store for full detail</div>
+
+    <div class="section-lbl">Store-wise count — click store name for full detail</div>
     ${sortableTbl(
-      ['Store','Market','RM','Count','Share%','Top category'],
+      ['Store','Market','RM','Count','Share%','Top category','Customer type'],
       storeRows,
-      ['Total','','',fi(total),'100%','']
+      ['Total','','',fi(total),'100%','','']
     )}`);
 };
 
@@ -1306,7 +1343,7 @@ window.showLSDMktModal=function(market){
 
 window.showStoreModal=function(storeName){
   const f=getFilters();
-  const{storeIdx,reasonIdx,catIdx,qtyIdx,valIdx,empIdx}=_LS_IDX;
+  const{storeIdx,reasonIdx,catIdx,qtyIdx,valIdx,empIdx,custIdx}=_LS_IDX;
   const rows=filterLS(f).filter(r=>String(r[storeIdx]||'')===storeName||normStore(String(r[storeIdx]||''))===normStore(storeName));
   const total=rows.length;
   const wkStore=_WK.stores.find(s=>s.outlet===storeName||s.outletNorm===normStore(storeName));
@@ -1320,6 +1357,7 @@ window.showStoreModal=function(storeName){
   const byCat=grpS(r=>catIdx>=0?r[catIdx]:'Unknown');
   const byEmp=grpS(r=>empIdx>=0?r[empIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown');
   const byTime=grpS(r=>r._time).filter(([k])=>k&&k!=='Unknown');
+  const byCust=grpS(r=>custIdx>=0?r[custIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown');
   const validM=rows.filter(r=>r._mob==='valid').length,invL=rows.filter(r=>r._mob==='invalid_length').length,invJ=rows.filter(r=>r._mob==='invalid_junk').length,missM=rows.filter(r=>r._mob==='missing').length;
   const mini=(arr,lbl)=>arr.length?`<table style="width:100%;border-collapse:collapse;">
     <thead><tr><th style="${ths}">${lbl}</th><th style="${ths}">Count</th><th style="${ths}">%</th></tr></thead>
@@ -1344,6 +1382,16 @@ window.showStoreModal=function(storeName){
     </div>
     <div class="section-lbl">Day-wise loss captured</div>
     ${dayWiseLSTable(rows,storeWkDayMap)}
+    ${byCust.length?`
+    <div class="section-lbl" style="margin-top:1rem;">👤 Customer type breakdown</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1.25rem;">
+      ${byCust.map(([k,v])=>`
+        <div style="background:${k.toLowerCase().includes('new')?'#e6f5ee':k.toLowerCase().includes('repeat')?'#e6eefa':'#fff8e6'};border-radius:10px;padding:10px 18px;text-align:center;min-width:120px;">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">${k}</div>
+          <div style="font-size:24px;font-weight:600;color:${k.toLowerCase().includes('new')?'var(--green)':k.toLowerCase().includes('repeat')?'var(--blue)':'var(--amber)'};">${fi(v.c)}</div>
+          <div style="font-size:11px;color:var(--muted);">${pct(v.c,total)}% of loss</div>
+        </div>`).join('')}
+    </div>`:''}
     <div class="two-col" style="margin-top:1rem;">
       <div><div class="section-lbl">Loss by reason</div>${mini(byReason,'Reason')}</div>
       <div><div class="section-lbl">Loss by category</div>${mini(byCat,'Category')}</div>
