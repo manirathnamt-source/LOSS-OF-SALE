@@ -772,7 +772,7 @@ function renderCatAnalysis(){
 
     <!-- REASON SUMMARY -->
     <div class="card">
-      <div class="card-title">Overall loss by reason — why customers are not buying</div>
+      <div class="card-title">Overall loss by reason — click reason to see store breakdown</div>
       ${sortableTbl(
         ['Reason','Count','Stores affected','Top category','Top size','Share%','Alert'],
         reasonGrp.map(([k,v])=>{
@@ -780,7 +780,8 @@ function renderCatAnalysis(){
           const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
           const topSz=Object.entries(v.sizes).sort((a,b)=>b[1]-a[1])[0];
           return{cells:[
-            k,fi(v.c),fi(v.stores.size),
+            `<span class="clickable" onclick="showReasonModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+            fi(v.c),fi(v.stores.size),
             topC?topC[0]:'—',
             topSz?`${topSz[0]}(${topSz[1]})`:'—',
             `${sh}%`,prAlert(sh)
