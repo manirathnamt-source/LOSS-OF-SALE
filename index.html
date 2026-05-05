@@ -115,12 +115,14 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
     <button class="tab-btn" onclick="show('ls')">Loss of Sale</button>
     <button class="tab-btn" onclick="show('lsd')">Loss Detail</button>
     <button class="tab-btn" onclick="show('cat')">Category Analysis</button>
+    <button class="tab-btn" onclick="show('wkly')">Weekly Comparison</button>
     <button class="tab-btn" onclick="show('audit')">Audit</button>
   </div>
   <div id="ov" class="pane active"><div class="loading">Loading...</div></div>
   <div id="ls" class="pane"><div class="loading">Loading...</div></div>
   <div id="lsd" class="pane"><div class="loading">Loading...</div></div>
   <div id="cat" class="pane"><div class="loading">Loading...</div></div>
+  <div id="wkly" class="pane"><div class="loading">Loading...</div></div>
   <div id="audit" class="pane"><div class="loading">Loading...</div></div>
 </div>
 <div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
@@ -287,12 +289,13 @@ function toDayKey(raw){
 
 // ── TAB SWITCHING ─────────────────────────────────────────
 function show(id){
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','audit'][i]===id));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','wkly','audit'][i]===id));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   if(id==='audit')renderAudit();
   if(id==='lsd')renderLossDetail();
   if(id==='cat')renderCatAnalysis();
+  if(id==='wkly')renderWeekly();
 }
 function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
 function openModal(title,sub,html){
@@ -374,9 +377,29 @@ function mobStatus(val){
   const s=String(val).replace(/\D/g,'');
   if(s.length!==10)return'invalid_length';
   if(/^(\d)\1{9}$/.test(s))return'invalid_junk';
+  // Reject if any digit repeats 4+ times consecutively (e.g., 9000034567, 9876541111)
+  if(/(\d)\1{3,}/.test(s))return'invalid_repeated';
   return'valid';
 }
 function normStore(s){return String(s||'').replace(/\s*\([^)]*\)\s*$/,'').trim().toUpperCase();}
+// Returns multiple normalized variants of a store name to maximize match chances.
+// Includes: full name, prefix-before-dash, suffix-after-dash, prefix-before-space.
+function storeKeys(s){
+  const base=normStore(s);
+  if(!base)return[];
+  const out=new Set([base]);
+  // prefix before " - " or " – "
+  const dashIdx=base.search(/\s[-–]\s/);
+  if(dashIdx>0)out.add(base.slice(0,dashIdx).trim());
+  // suffix after " - "
+  if(dashIdx>0)out.add(base.slice(dashIdx).replace(/^\s*[-–]\s*/,'').trim());
+  // prefix before first space (short code)
+  const spaceIdx=base.indexOf(' ');
+  if(spaceIdx>0)out.add(base.slice(0,spaceIdx).trim());
+  // remove punctuation/extra spaces collapsed
+  out.add(base.replace(/[-–_]+/g,' ').replace(/\s+/g,' ').trim());
+  return [...out].filter(Boolean);
+}
 
 // ── CUSTOMER TYPE COUNTER ─────────────────────────────────
 // Returns counts of New / Repeat / Other based on detected customer type column.
@@ -439,7 +462,7 @@ function getCustCounts(rows){
 }
 
 // ── GLOBAL STATE ──────────────────────────────────────────
-let _WK=null,_LS_ROWS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={};
+let _WK=null,_LS_ROWS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={},_WK_STORE_BY_KEY={};
 let _lsSyncOn=false; // toggle: false = Loss tab shows ALL data
 
 // ── FILTER STATE — stored in object, not just DOM ─────────
@@ -552,7 +575,12 @@ function parseWalkins(headers,rows){
   const clusters=[...new Set(stores.map(s=>s.cluster).filter(Boolean))].sort();
   const markets=[...new Set(stores.map(s=>s.market).filter(Boolean))].sort();
   const dks=days.map(d=>d.dk);
-  stores.forEach(s=>{_STORE_RM[s.outletNorm]=s.rm;});
+  // Build _STORE_RM and a multi-key lookup index for resilient LS↔Walkins store matching
+  _WK_STORE_BY_KEY={};
+  stores.forEach(s=>{
+    _STORE_RM[s.outletNorm]=s.rm;
+    storeKeys(s.outlet).forEach(k=>{if(!_WK_STORE_BY_KEY[k])_WK_STORE_BY_KEY[k]=s;});
+  });
   return{stores,days,rms,clusters,markets,dks};
 }
 
@@ -609,9 +637,14 @@ function parseLoss(headers,rows){
   _LS_ROWS=rows.map(r=>{
     const dk=toDayKey(r[dateIdx]);
     const syncedDk=dk&&wkDayKeys.has(dk)?dk:null;
-    const storeNorm=normStore(String(r[storeIdx]||''));
-    const wkStore=_WK.stores.find(s=>s.outletNorm===storeNorm);
-    const rm=_STORE_RM[storeNorm]||(wkStore?wkStore.rm:'Unknown');
+    const rawStore=String(r[storeIdx]||'');
+    // Try multiple key variants for resilient matching
+    let wkStore=null;
+    for(const k of storeKeys(rawStore)){
+      if(_WK_STORE_BY_KEY[k]){wkStore=_WK_STORE_BY_KEY[k];break;}
+    }
+    const storeNorm=normStore(rawStore);
+    const rm=wkStore?wkStore.rm:(_STORE_RM[storeNorm]||'Unknown');
     const productParts=[_LS_IDX.subCatIdx,_LS_IDX.sizeIdx,_LS_IDX.styleIdx,_LS_IDX.colorIdx,_LS_IDX.polishIdx,_LS_IDX.designIdx,_LS_IDX.notesIdx].filter(i=>i>=0).map(i=>String(r[i]||'').trim()).filter(Boolean);
     return{...r,_dk:dk,_syncedDk:syncedDk,_rm:rm,_mob:mobStatus(phoneIdx>=0?r[phoneIdx]:''),_time:toTimeBucket(timingIdx>=0?r[timingIdx]:''),_product:productParts.join(' | ')||'Unknown',_wkStore:wkStore};
   });
@@ -858,6 +891,7 @@ function renderAll(){
   renderLoss();
   if(document.getElementById('lsd').classList.contains('active'))renderLossDetail();
   if(document.getElementById('cat').classList.contains('active'))renderCatAnalysis();
+  if(document.getElementById('wkly').classList.contains('active'))renderWeekly();
   if(document.getElementById('audit').classList.contains('active'))renderAudit();
 }
 
@@ -1017,6 +1051,10 @@ function renderLoss(){
   const mkRows=(grp,alertFn,clkFn)=>grp.map(([k,v])=>{const sh=pct(v.c,total);return{cells:[clkFn?`<span class="clickable" onclick="${clkFn(k)}">${k}</span>`:k,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,alertFn(sh)]};});
 
   document.getElementById('ls').innerHTML=`
+    <div style="background:linear-gradient(135deg,#fff5f5 0%,#fff 100%);border:1px solid #fdeaea;border-left:4px solid var(--red);border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">📊 Loss of Sale — Patterns & Insights</div>
+      <div style="font-size:12px;color:var(--muted);">Analyze <strong>why</strong> losses are happening — by reason, time, customer type. Includes auto-generated insights & actionables.</div>
+    </div>
     <div class="metrics">
       <div class="metric"><div class="lbl">Total records</div><div class="val">${fi(total)}</div><div class="sub">${_lsSyncOn?'synced to walkins':'all sheet data'}</div></div>
       ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Total qty lost</div><div class="val">${fi(totalQty)}</div><div class="sub">units</div></div>`:''}
@@ -1077,8 +1115,7 @@ function renderLoss(){
           const cc=getCustCounts(rmRows);
           return{cells:[`<strong>${k}</strong>`,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Watch</span>':'<span class="badge badge-green">OK</span>',`<span style="color:var(--green);font-weight:600">${fi(cc.new)}</span>`,`<span style="color:var(--blue);font-weight:600">${fi(cc.repeat)}</span>`]};
         })
-      )}</div>
-    ${renderWoWSection(rows)}`;
+      )}</div>`;
 }
 
 // ── WEEK-ON-WEEK COMPARISON ───────────────────────────────
@@ -1115,33 +1152,49 @@ function getWeekRange(weekKey){
   const fmt=d=>d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
   return`${fmt(monday)} – ${fmt(sunday)}`;
 }
-function renderWoWSection(rows){
+function renderWeekly(){
+  const f=getFilters();
+  const rows=filterLS(f); // uses all loss data (date-aware), respecting filters
   const{storeIdx}=_LS_IDX;
-  if(!rows||!rows.length)return'';
+  const target=document.getElementById('wkly');
+  if(!rows||!rows.length){
+    target.innerHTML=`
+      <div style="background:linear-gradient(135deg,#f5f0ff 0%,#fff 100%);border:1px solid #e0d4f7;border-left:4px solid #6b52d4;border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
+        <div style="font-size:18px;font-weight:600;">📅 Weekly Comparison</div>
+        <div style="font-size:12px;color:var(--muted);">No loss data in current filter selection.</div>
+      </div>`;
+    return;
+  }
   // Bucket by week
   const byWeek={};
   rows.forEach(r=>{
-    const dk=_lsSyncOn?r._syncedDk:r._dk;
+    const dk=r._dk;
     if(!dk)return;
     const wk=getWeekKey(dk);
     if(!wk)return;
-    if(!byWeek[wk])byWeek[wk]={total:0,byRM:{},byCluster:{},byStore:{}};
+    if(!byWeek[wk])byWeek[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
     byWeek[wk].total++;
     const rm=r._rm||'Unknown';
     byWeek[wk].byRM[rm]=(byWeek[wk].byRM[rm]||0)+1;
     const wkStore=r._wkStore;
-    const cluster=wkStore?wkStore.cluster:'Unknown';
+    const cluster=wkStore?wkStore.cluster:'(unsynced)';
+    const market=wkStore?wkStore.market:'(unsynced)';
     byWeek[wk].byCluster[cluster]=(byWeek[wk].byCluster[cluster]||0)+1;
+    byWeek[wk].byMarket[market]=(byWeek[wk].byMarket[market]||0)+1;
     const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
     byWeek[wk].byStore[store]=(byWeek[wk].byStore[store]||0)+1;
   });
   const weeks=Object.keys(byWeek).sort();
-  if(weeks.length<2)return`
-    <div class="card"><div class="card-title">📅 Week-on-week comparison</div>
-      <p style="color:var(--muted);font-size:12px;padding:.5rem 0;">Need at least 2 weeks of data to show WoW comparison. Currently: ${weeks.length} week${weeks.length===1?` (${getWeekRange(weeks[0])})`:'s'}.</p>
-    </div>`;
 
-  // Build comparison: each row = RM/CM/Store, columns = each week + WoW% change (last vs prev)
+  if(weeks.length<2){
+    target.innerHTML=`
+      <div style="background:linear-gradient(135deg,#f5f0ff 0%,#fff 100%);border:1px solid #e0d4f7;border-left:4px solid #6b52d4;border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
+        <div style="font-size:18px;font-weight:600;">📅 Weekly Comparison</div>
+        <div style="font-size:12px;color:var(--muted);">Need at least 2 weeks of data to show WoW comparison. Currently: ${weeks.length} week${weeks.length===1?` (${getWeekRange(weeks[0])})`:'s'}.</div>
+      </div>`;
+    return;
+  }
+
   const buildRows=(dim)=>{
     const allKeys=new Set();
     weeks.forEach(w=>Object.keys(byWeek[w][dim]).forEach(k=>allKeys.add(k)));
@@ -1155,10 +1208,9 @@ function renderWoWSection(rows){
       return{key:k,counts,total,prev,curr,wowDelta,wowPct};
     }).filter(r=>r.total>0).sort((a,b)=>b.total-a.total);
   };
-
   const wowBadge=(delta,pct)=>{
     if(delta===0)return'<span class="badge" style="background:#f0f0f0;color:var(--muted);">→ 0</span>';
-    if(delta>0)return`<span class="badge badge-red">▲ ${delta>0?'+':''}${delta} (${pct>0?'+':''}${pct}%)</span>`;
+    if(delta>0)return`<span class="badge badge-red">▲ +${delta} (${pct>0?'+':''}${pct}%)</span>`;
     return`<span class="badge badge-green">▼ ${delta} (${pct}%)</span>`;
   };
 
@@ -1176,22 +1228,39 @@ function renderWoWSection(rows){
     }));
     const totals=weeks.map(w=>byWeek[w].total);
     const totFooter=['Total',...totals.map(c=>fi(c)),fi(totals.reduce((a,b)=>a+b,0)),wowBadge(totals[totals.length-1]-totals[totals.length-2],totals[totals.length-2]>0?Math.round((totals[totals.length-1]-totals[totals.length-2])/totals[totals.length-2]*100):0)];
-    return`<div class="card"><div class="card-title">📅 WoW comparison — by ${label.toLowerCase()}</div>
-      <p style="font-size:11px;color:var(--muted);margin-bottom:8px;">Loss of sale entries collected per week. ▲ = increase (more loss), ▼ = decrease (less loss). Comparing last week vs previous.</p>
+    return`<div class="card"><div class="card-title">By ${label.toLowerCase()} (${dimRows.length})</div>
       ${sortableTbl(headers,tblRows,totFooter)}
     </div>`;
   };
 
-  return`
-    <div class="card" style="background:#e6eefa;border-color:#b8c8e8;">
-      <div class="card-title" style="color:#1a3fa0;">📅 Week-on-week comparison · ${weeks.length} weeks loaded</div>
-      <p style="font-size:12px;color:#1a3fa0;margin:0;">Showing weeks: ${weeks.map(w=>getWeekRange(w)).join(' · ')}</p>
+  // Top-line metrics
+  const totalAll=weeks.reduce((s,w)=>s+byWeek[w].total,0);
+  const lastWk=byWeek[weeks[weeks.length-1]].total;
+  const prevWk=byWeek[weeks[weeks.length-2]].total;
+  const overallDelta=lastWk-prevWk;
+  const overallPct=prevWk>0?Math.round((lastWk-prevWk)/prevWk*100):(lastWk>0?100:0);
+
+  target.innerHTML=`
+    <div style="background:linear-gradient(135deg,#f5f0ff 0%,#fff 100%);border:1px solid #e0d4f7;border-left:4px solid #6b52d4;border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">📅 Weekly Comparison</div>
+      <div style="font-size:12px;color:var(--muted);">Loss of sale entries collected per ISO week (Mon–Sun). <strong>▲ red</strong> = increase (more loss), <strong>▼ green</strong> = decrease.</div>
     </div>
-    ${buildTable('RM','byRM',null)}
+
+    <div class="metrics" style="margin-bottom:1.25rem;">
+      <div class="metric"><div class="lbl">Weeks loaded</div><div class="val">${weeks.length}</div><div class="sub">${getWeekRange(weeks[0])} → ${getWeekRange(weeks[weeks.length-1])}</div></div>
+      <div class="metric red"><div class="lbl">Total entries (all weeks)</div><div class="val">${fi(totalAll)}</div></div>
+      <div class="metric"><div class="lbl">Latest week</div><div class="val">${fi(lastWk)}</div><div class="sub">${getWeekRange(weeks[weeks.length-1])}</div></div>
+      <div class="metric ${overallDelta>0?'red':overallDelta<0?'green':''}"><div class="lbl">Δ vs previous week</div><div class="val">${overallDelta>0?'+':''}${fi(overallDelta)}</div><div class="sub">${overallPct>0?'+':''}${overallPct}% ${overallDelta>0?'increase':overallDelta<0?'decrease':'no change'}</div></div>
+    </div>
+
+    ${buildTable('Market','byMarket',null)}
     ${buildTable('Cluster','byCluster',null)}
-    ${buildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\\\'")}')`)}
-  `;
+    ${buildTable('RM','byRM',null)}
+    ${buildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\\\'")}')`)}`;
 }
+
+// Legacy alias kept in case anything else references it
+function renderWoWSection(rows){return'';}
 
 // ── LOSS DETAIL TAB ───────────────────────────────────────
 function renderLossDetail(){
@@ -1218,6 +1287,10 @@ function renderLossDetail(){
   const mkRow=(k,v,clkFn)=>{const sh=pct(v.c,total);return{cells:[clkFn?`<span class="clickable" onclick="${clkFn(k)}">${k}</span>`:k,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,stAlert(sh)]};};
 
   document.getElementById('lsd').innerHTML=`
+    <div style="background:linear-gradient(135deg,#f0f5ff 0%,#fff 100%);border:1px solid #d0dffa;border-left:4px solid var(--blue);border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">🔍 Loss Detail — Coverage & Sync Status</div>
+      <div style="font-size:12px;color:var(--muted);">Track <strong>data completeness</strong> across RM, Market, Store. See what's synced to walkins vs pending.</div>
+    </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:1.25rem;display:flex;flex-wrap:wrap;gap:16px;align-items:center;font-size:12px;">
       <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">📋</span>
         <div><div style="font-weight:600;">Loss of Sale data in sheet</div>
@@ -1329,11 +1402,111 @@ function renderCatAnalysis(){
   window._catCtx={rows,total,catGrp,reasonGrp,mktArr,subCatGrp,sizeGrp,styleGrp};
 
   document.getElementById('cat').innerHTML=`
+    <div style="background:linear-gradient(135deg,#fff8e6 0%,#fff 100%);border:1px solid #f0d68a;border-left:4px solid var(--amber);border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">🏷️ Category Analysis</div>
+      <div style="font-size:12px;color:var(--muted);">Click any reason or category below to drill: <strong>Reason → Stores → Category → Other Reasons & Staff</strong></div>
+    </div>
+
     <div class="metrics" style="cursor:pointer;">
       <div class="metric clickable-card" title="Click to see all loss entries breakdown" onclick="showCatTotalModal()"><div class="lbl">Total loss entries</div><div class="val">${fi(total)}</div><div class="sub">filtered · click to drill down</div></div>
       <div class="metric red clickable-card" title="Click to see categories list" onclick="showCatListModal()"><div class="lbl">Categories affected</div><div class="val">${catGrp.length}</div><div class="sub">click to view list</div></div>
       <div class="metric amber clickable-card" title="Click to see reasons list" onclick="showCatReasonsModal()"><div class="lbl">Unique reasons</div><div class="val">${reasonGrp.length}</div><div class="sub">click to view list</div></div>
       <div class="metric clickable-card" title="Click to see markets list" onclick="showCatMarketsModal()"><div class="lbl">Markets affected</div><div class="val">${mktArr.length}</div><div class="sub">click to view list</div></div>
+    </div>
+
+    <!-- ═══════ MAIN ANALYSIS (Reason I + Reason J + Category) ═══════ -->
+    <div style="background:#f5f0ff;border:1px solid #e0d4f7;border-radius:10px;padding:6px 14px;margin-top:1rem;margin-bottom:.5rem;">
+      <div style="font-size:11px;font-weight:600;color:#5a3da0;text-transform:uppercase;letter-spacing:.5px;">🎯 Main analysis — click any row to drill to stores</div>
+    </div>
+
+    <!-- REASON SUMMARY (col I) -->
+    <div class="card">
+      <div class="card-title">By reason of loss (col I) — click to drill: stores → category → other reasons & staff</div>
+      ${sortableTbl(
+        ['Reason of loss (col I)','Count','Stores affected','Top category','Top size','Share%','Alert'],
+        reasonGrp.map(([k,v])=>{
+          const sh=pct(v.c,total);
+          const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+          const topSz=Object.entries(v.sizes).sort((a,b)=>b[1]-a[1])[0];
+          return{cells:[
+            `<span class="clickable" onclick="showReasonStoresModal('${k.replace(/'/g,"\\'")}','I')">${k}</span>`,
+            fi(v.c),fi(v.stores.size),
+            topC?topC[0]:'—',
+            topSz?`${topSz[0]}(${topSz[1]})`:'—',
+            `${sh}%`,prAlert(sh)
+          ]};
+        }),
+        ['Total',fi(total),'','','','100%','']
+      )}
+    </div>
+
+    <!-- SPECIFIC REASON SUMMARY (col J) -->
+    ${(()=>{
+      const subRIdx=_LS_IDX.subReasonIdx;
+      if(subRIdx<0||subRIdx===reasonIdx)return ''; // no col J or it's the same as col I
+      const subMap={};
+      rows.forEach(r=>{
+        const v=String(r[subRIdx]||'').trim()||'(blank)';
+        if(!subMap[v])subMap[v]={c:0,stores:new Set(),cats:{},broadReasons:{}};
+        subMap[v].c++;
+        const store=storeIdx>=0?String(r[storeIdx]||''):'';
+        if(store)subMap[v].stores.add(store);
+        const cat=catIdx>=0?String(r[catIdx]||''):'';
+        if(cat)subMap[v].cats[cat]=(subMap[v].cats[cat]||0)+1;
+        const broadR=reasonIdx>=0?String(r[reasonIdx]||''):'';
+        if(broadR)subMap[v].broadReasons[broadR]=(subMap[v].broadReasons[broadR]||0)+1;
+      });
+      const subGrp=Object.entries(subMap).sort((a,b)=>b[1].c-a[1].c);
+      if(!subGrp.length)return '';
+      return`<div class="card">
+        <div class="card-title">By specific reason (col J) — click to drill: stores → category → other reasons & staff</div>
+        ${sortableTbl(
+          ['Specific reason (col J)','Count','Stores affected','Top broad reason (col I)','Top category','Share%','Alert'],
+          subGrp.map(([k,v])=>{
+            const sh=pct(v.c,total);
+            const topBR=Object.entries(v.broadReasons).sort((a,b)=>b[1]-a[1])[0];
+            const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+            return{cells:[
+              `<span class="clickable" onclick="showReasonStoresModal('${k.replace(/'/g,"\\'")}','J')">${k}</span>`,
+              fi(v.c),
+              fi(v.stores.size),
+              topBR?`${topBR[0]} (${topBR[1]})`:'—',
+              topC?`${topC[0]} (${topC[1]})`:'—',
+              `${sh}%`,
+              prAlert(sh)
+            ]};
+          }),
+          ['Total',fi(total),'','','','100%','']
+        )}
+      </div>`;
+    })()}
+
+    <!-- CATEGORY SUMMARY -->
+    <div class="card">
+      <div class="card-title">By category — click for market breakdown</div>
+      ${sortableTbl(
+        ['Category','Count','Stores affected','Top reason','Top size','Top style','Share%','Alert'],
+        catGrp.map(([k,v])=>{
+          const sh=pct(v.c,total);
+          const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+          const topSz=Object.entries(v.sizes).sort((a,b)=>b[1]-a[1])[0];
+          const topSt=Object.entries(v.styles).sort((a,b)=>b[1]-a[1])[0];
+          return{cells:[
+            `<span class="clickable" onclick="showCatDetailModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+            fi(v.c),fi(v.stores.size),
+            topR?topR[0]:'—',
+            topSz?`${topSz[0]}(${topSz[1]})`:'—',
+            topSt?`${topSt[0]}(${topSt[1]})`:'—',
+            `${sh}%`,prAlert(sh)
+          ]};
+        }),
+        ['Total',fi(total),'','','','','100%','']
+      )}
+    </div>
+
+    <!-- ═══════ DEEPER BREAKDOWNS ═══════ -->
+    <div style="background:#f0f0f0;border:1px solid #d8d8d8;border-radius:10px;padding:6px 14px;margin-top:1.5rem;margin-bottom:.5rem;">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">📊 Deeper breakdowns — geographic & product detail</div>
     </div>
 
     <!-- MARKET × CATEGORY TABLE -->
@@ -1359,96 +1532,9 @@ function renderCatAnalysis(){
       )}
     </div>
 
-    <!-- CATEGORY SUMMARY -->
-    <div class="card">
-      <div class="card-title">Overall loss by category — click for market breakdown</div>
-      ${sortableTbl(
-        ['Category','Count','Stores affected','Top reason','Top size','Top style','Share%','Alert'],
-        catGrp.map(([k,v])=>{
-          const sh=pct(v.c,total);
-          const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
-          const topSz=Object.entries(v.sizes).sort((a,b)=>b[1]-a[1])[0];
-          const topSt=Object.entries(v.styles).sort((a,b)=>b[1]-a[1])[0];
-          return{cells:[
-            `<span class="clickable" onclick="showCatDetailModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
-            fi(v.c),fi(v.stores.size),
-            topR?topR[0]:'—',
-            topSz?`${topSz[0]}(${topSz[1]})`:'—',
-            topSt?`${topSt[0]}(${topSt[1]})`:'—',
-            `${sh}%`,prAlert(sh)
-          ]};
-        }),
-        ['Total',fi(total),'','','','','100%','']
-      )}
-    </div>
-
-    <!-- REASON SUMMARY -->
-    <div class="card">
-      <div class="card-title">Overall loss by reason — click reason to see store breakdown</div>
-      ${sortableTbl(
-        ['Reason','Count','Stores affected','Top category','Top size','Share%','Alert'],
-        reasonGrp.map(([k,v])=>{
-          const sh=pct(v.c,total);
-          const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
-          const topSz=Object.entries(v.sizes).sort((a,b)=>b[1]-a[1])[0];
-          return{cells:[
-            `<span class="clickable" onclick="showReasonModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
-            fi(v.c),fi(v.stores.size),
-            topC?topC[0]:'—',
-            topSz?`${topSz[0]}(${topSz[1]})`:'—',
-            `${sh}%`,prAlert(sh)
-          ]};
-        }),
-        ['Total',fi(total),'','','','100%','']
-      )}
-    </div>
-
-    <!-- SPECIFIC REASON SUMMARY (col J) -->
-    ${(()=>{
-      const subRIdx=_LS_IDX.subReasonIdx;
-      if(subRIdx<0||subRIdx===reasonIdx)return ''; // no col J or it's the same as col I
-      // Group by col J value
-      const subMap={};
-      rows.forEach(r=>{
-        const v=String(r[subRIdx]||'').trim()||'(blank)';
-        if(!subMap[v])subMap[v]={c:0,stores:new Set(),cats:{},broadReasons:{}};
-        subMap[v].c++;
-        const store=storeIdx>=0?String(r[storeIdx]||''):'';
-        if(store)subMap[v].stores.add(store);
-        const cat=catIdx>=0?String(r[catIdx]||''):'';
-        if(cat)subMap[v].cats[cat]=(subMap[v].cats[cat]||0)+1;
-        const broadR=reasonIdx>=0?String(r[reasonIdx]||''):'';
-        if(broadR)subMap[v].broadReasons[broadR]=(subMap[v].broadReasons[broadR]||0)+1;
-      });
-      const subGrp=Object.entries(subMap).sort((a,b)=>b[1].c-a[1].c);
-      if(!subGrp.length)return '';
-      return`<div class="card">
-        <div class="card-title">Specific reason analysis (col J) — click reason to see store-wise list</div>
-        <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">${subGrp.length} unique specific reasons across ${fi(total)} loss entries.</p>
-        ${sortableTbl(
-          ['Specific reason (col J)','Count','Stores affected','Top broad reason (col I)','Top category','Share%','Alert'],
-          subGrp.map(([k,v])=>{
-            const sh=pct(v.c,total);
-            const topBR=Object.entries(v.broadReasons).sort((a,b)=>b[1]-a[1])[0];
-            const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
-            return{cells:[
-              `<span class="clickable" onclick="showSubReasonModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
-              fi(v.c),
-              fi(v.stores.size),
-              topBR?`${topBR[0]} (${topBR[1]})`:'—',
-              topC?`${topC[0]} (${topC[1]})`:'—',
-              `${sh}%`,
-              prAlert(sh)
-            ]};
-          }),
-          ['Total',fi(total),'','','','100%','']
-        )}
-      </div>`;
-    })()}
-
-    <!-- SIZE ANALYSIS -->
+    <!-- SIZE / STYLE / SUB-CAT (only if data exists) -->
     ${sizeGrp.length?`<div class="card">
-      <div class="card-title">Size-wise loss analysis</div>
+      <div class="card-title">Size-wise loss</div>
       ${sortableTbl(
         ['Size','Count','Top category','Top reason','Share%','Alert'],
         sizeGrp.map(([k,v])=>{
@@ -1461,9 +1547,8 @@ function renderCatAnalysis(){
       )}
     </div>`:''}
 
-    <!-- STYLE ANALYSIS -->
     ${styleGrp.length?`<div class="card">
-      <div class="card-title">Style-wise loss analysis</div>
+      <div class="card-title">Style-wise loss</div>
       ${sortableTbl(
         ['Style','Count','Top category','Top reason','Share%','Alert'],
         styleGrp.map(([k,v])=>{
@@ -1476,9 +1561,8 @@ function renderCatAnalysis(){
       )}
     </div>`:''}
 
-    <!-- SUB CATEGORY ANALYSIS -->
     ${subCatGrp.length?`<div class="card">
-      <div class="card-title">Product sub-category loss analysis</div>
+      <div class="card-title">Product sub-category loss</div>
       ${sortableTbl(
         ['Sub Category','Count','Top reason','Top size','Share%','Alert'],
         subCatGrp.map(([k,v])=>{
@@ -1493,7 +1577,7 @@ function renderCatAnalysis(){
 
     <!-- CATEGORY × REASON CROSS TABLE -->
     <div class="card">
-      <div class="card-title">Category × Reason cross analysis — how many of each reason per category</div>
+      <div class="card-title">Category × Reason cross analysis — count of each reason per category</div>
       <div class="tw"><table id="cross-tbl">
         <thead><tr>
           <th>Category</th>
@@ -1679,6 +1763,68 @@ function renderAudit(){
   // Cache for the modals
   window._phoneAuditCtx=filtLS;
 
+  // ── ABNORMAL REASON FLAGGING (col J) ──────────────────────
+  // Whitelist of reasons that should always be flagged for review,
+  // PLUS auto-flag any reason with <2% share of total LS rows.
+  const ABNORMAL_REASONS=new Set([
+    'discount expectation not met',
+    'offer not valid in store',
+    'perceived poor value for money',
+    'polish not available',
+    'personalization not available',
+    'found substitute product at lower price',
+    'found cheaper online',
+    '(blank)',
+    'fit not comfortable',
+    'repair service not available',
+    'price mismatch with website'
+  ]);
+  const subRIdx=_LS_IDX.subReasonIdx>=0&&_LS_IDX.subReasonIdx!==reasonIdx?_LS_IDX.subReasonIdx:reasonIdx;
+  const subRMap={};
+  filtLS.forEach(r=>{
+    if(subRIdx<0)return;
+    const v=String(r[subRIdx]||'').trim()||'(blank)';
+    if(!subRMap[v])subRMap[v]={c:0,stores:new Set(),rms:new Set(),markets:new Set()};
+    subRMap[v].c++;
+    const sn=storeIdx>=0?String(r[storeIdx]||''):'';
+    if(sn)subRMap[v].stores.add(sn);
+    if(r._wkStore){
+      if(r._wkStore.rm&&r._wkStore.rm!=='Unknown')subRMap[v].rms.add(r._wkStore.rm);
+      if(r._wkStore.market&&r._wkStore.market!=='Unknown')subRMap[v].markets.add(r._wkStore.market);
+    }
+  });
+  const totalLSAudit=filtLS.length;
+  const abnRows=[];
+  Object.entries(subRMap).forEach(([reason,v])=>{
+    const sh=pct(v.c,totalLSAudit);
+    const lc=reason.toLowerCase();
+    const isWhitelisted=ABNORMAL_REASONS.has(lc);
+    const isLowFreq=sh<2&&v.c>0;
+    if(!isWhitelisted&&!isLowFreq)return;
+    const flagType=isWhitelisted?(isLowFreq?'whitelisted+rare':'whitelisted'):'rare';
+    abnRows.push({reason,c:v.c,stores:v.stores.size,rms:v.rms.size,markets:v.markets.size,sh,flagType,isWhitelisted,isLowFreq});
+  });
+  // Sort: whitelisted first (alphabetic), then rare ones by count desc
+  abnRows.sort((a,b)=>{
+    if(a.isWhitelisted!==b.isWhitelisted)return a.isWhitelisted?-1:1;
+    if(a.isWhitelisted)return a.reason.localeCompare(b.reason);
+    return b.c-a.c;
+  });
+  const abnTblRows=abnRows.map(r=>{
+    const flagBadge=r.isWhitelisted&&r.isLowFreq?'<span class="badge badge-red">🔴 Whitelisted + Rare</span>':r.isWhitelisted?'<span class="badge badge-red">🔴 Notify</span>':'<span class="badge badge-amber">🟡 Rare (<2%)</span>';
+    return{cells:[
+      `<span class="clickable" onclick="showReasonStoresModal('${r.reason.replace(/'/g,"\\'")}','${subRIdx===_LS_IDX.subReasonIdx?'J':'I'}')">${r.reason}</span>`,
+      fi(r.c),
+      fi(r.stores),
+      fi(r.rms),
+      fi(r.markets),
+      `${r.sh}%`,
+      flagBadge
+    ],_cls:r.isWhitelisted?'audit-red':'audit-amber'};
+  });
+  const abnCriticalCount=abnRows.filter(r=>r.isWhitelisted).length;
+  const abnRareCount=abnRows.filter(r=>!r.isWhitelisted&&r.isLowFreq).length;
+
   const covCritical=storeAudit.filter(s=>s.lsCov<10).length;
   const mobCritical=storeAudit.filter(s=>s.mobPct>50&&s.ls>0).length;
   const repCritical=storeAudit.filter(s=>s.topReasonPct>=70&&s.ls>0).length;
@@ -1687,13 +1833,14 @@ function renderAudit(){
     coverage:{title:'🔴 Non-buyer coverage gaps — sorted worst first',html:sortableTbl(['Store','Market','RM','Non-buyers','Loss captured','Coverage%','Status'],covRows,null,r=>r._cls)},
     mobile:{title:'📱 Phone number quality — market-level (click market → RM → store)',html:phoneMktRows.length?sortableTbl(['Market','RMs','Stores','Total entries','Invalid/Missing','Bad%','Status'],phoneMktRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No phone data found.</p>'},
     reason:{title:'🔁 Stores with repetitive loss reasons (same reason >50%)',html:repRows.length?sortableTbl(['Store','Market','RM','Top reason','Loss entries','Repeat%','Status'],repRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No stores with repetitive reasons found.</p>'},
-    product:{title:'🏷️ Most repeated product issues',html:prodRows.length?sortableTbl(['Product details','Count','Stores affected','Top reason','Alert'],prodRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No product data found.</p>'}
+    product:{title:'🏷️ Most repeated product issues',html:prodRows.length?sortableTbl(['Product details','Count','Stores affected','Top reason','Alert'],prodRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No product data found.</p>'},
+    abnormal:{title:`⚠️ Abnormal / notify-worthy reasons (col J) — ${abnCriticalCount} whitelisted · ${abnRareCount} rare (<2%)`,html:abnTblRows.length?`<p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">🔴 <strong>Whitelisted</strong> = always flagged (e.g., "Found cheaper online", "Polish not available"). 🟡 <strong>Rare</strong> = under 2% share, may indicate data entry issues or new edge cases. Click any reason to see store-wise breakdown.</p>${sortableTbl(['Abnormal reason','Count','Stores','RMs','Markets','Share%','Flag'],abnTblRows,null,r=>r._cls)}`:'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No abnormal reasons detected in current filter.</p>'}
   };
   window._auditTables=auditTables;
   if(!window._activeAudit)window._activeAudit='coverage';
 
   document.getElementById('audit').innerHTML=`
-    <div class="metrics" style="cursor:pointer;">
+    <div class="metrics" style="cursor:pointer;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
       <div class="metric red audit-card" id="ac-coverage" onclick="selectAudit('coverage')" style="transition:all .15s;">
         <div class="lbl">🔴 Coverage critical</div><div class="val">${covCritical}</div><div class="sub">stores &lt;10% coverage · click to view</div>
       </div>
@@ -1705,6 +1852,9 @@ function renderAudit(){
       </div>
       <div class="metric amber audit-card" id="ac-product" onclick="selectAudit('product')" style="transition:all .15s;">
         <div class="lbl">🟡 Top product issues</div><div class="val">${prodArr.length}</div><div class="sub">repeated combinations · click to view</div>
+      </div>
+      <div class="metric red audit-card" id="ac-abnormal" onclick="selectAudit('abnormal')" style="transition:all .15s;">
+        <div class="lbl">⚠️ Abnormal reasons</div><div class="val">${abnCriticalCount+abnRareCount}</div><div class="sub">${abnCriticalCount} notify · ${abnRareCount} rare · click to view</div>
       </div>
     </div>
     <div class="audit-legend">
@@ -1721,9 +1871,9 @@ function renderAudit(){
 window.selectAudit=function(key){
   window._activeAudit=key;
   const t=window._auditTables;if(!t)return;
-  ['coverage','mobile','reason','product'].forEach(k=>{
+  ['coverage','mobile','reason','product','abnormal'].forEach(k=>{
     const el=document.getElementById('ac-'+k);if(!el)return;
-    const isRed=k==='coverage'||k==='mobile';
+    const isRed=k==='coverage'||k==='mobile'||k==='abnormal';
     if(k===key){el.style.border=`2px solid ${isRed?'var(--red)':'var(--amber)'}`;el.style.boxShadow=`0 0 0 3px ${isRed?'rgba(196,48,48,0.15)':'rgba(196,122,15,0.15)'}`;el.style.transform='translateY(-2px)';}
     else{el.style.border='1px solid var(--border)';el.style.boxShadow='none';el.style.transform='none';}
   });
@@ -1770,6 +1920,381 @@ function buildWkDayMap(wkStores,f){
 }
 
 // ── REASON MODAL → store list with count ──────────────────
+// ── REASON DRILLDOWN CHAIN ─────────────────────────────
+// Level 1: showReasonStoresModal(reasonValue, sourceCol)
+//   Click reason → modal showing list of STORES with this reason (from filtered LS).
+// Level 2: showReasonStoreCatModal(reasonValue, sourceCol, store)
+//   Click a store → modal showing CATEGORY BIFURCATION for that store + reason.
+// Level 3: showReasonStoreCatDetailModal(reasonValue, sourceCol, store, category)
+//   Click a category → modal showing OTHER REASONS + STAFF-WISE counts for that store + category.
+// `sourceCol` is 'I' for Reason Of Loss Of Sale (col I) or 'J' for Reason (col J).
+
+function _reasonColIdx(sourceCol){return sourceCol==='J'?_LS_IDX.subReasonIdx:_LS_IDX.reasonIdx;}
+function _otherReasonColIdx(sourceCol){return sourceCol==='J'?_LS_IDX.reasonIdx:_LS_IDX.subReasonIdx;}
+function _reasonLabel(sourceCol){return sourceCol==='J'?'Specific Reason (col J)':'Reason of Loss (col I)';}
+
+window.showReasonStoresModal=function(reasonValue,sourceCol){
+  sourceCol=sourceCol||'I';
+  const idx=_reasonColIdx(sourceCol);
+  if(idx<0){alert('Reason column not found');return;}
+  const f=getFilters();
+  const allFiltered=filterLS(f);
+  const matchRows=allFiltered.filter(r=>String(r[idx]||'').trim()===reasonValue);
+  const total=matchRows.length;
+  const{storeIdx,catIdx,empIdx}=_LS_IDX;
+
+  // Group by store
+  const storeMap={};
+  matchRows.forEach(r=>{
+    const sn=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
+    if(!storeMap[sn])storeMap[sn]={c:0,cats:{},market:'—',rm:'—',cluster:'—'};
+    storeMap[sn].c++;
+    const cat=catIdx>=0?String(r[catIdx]||''):'';
+    if(cat)storeMap[sn].cats[cat]=(storeMap[sn].cats[cat]||0)+1;
+    if(r._wkStore){storeMap[sn].market=r._wkStore.market;storeMap[sn].rm=r._wkStore.rm;storeMap[sn].cluster=r._wkStore.cluster;}
+  });
+  const storeArr=Object.entries(storeMap).sort((a,b)=>b[1].c-a[1].c);
+
+  // Quick aggregations for header
+  const mktSet=new Set();const rmSet=new Set();
+  matchRows.forEach(r=>{if(r._wkStore){mktSet.add(r._wkStore.market);rmSet.add(r._wkStore.rm);}});
+
+  const tblRows=storeArr.map(([k,v])=>{
+    const topCat=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
+    return{cells:[
+      `<span class="clickable" onclick="showReasonStoreCatModal('${reasonValue.replace(/'/g,"\\'")}','${sourceCol}','${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      v.market,v.rm,
+      fi(v.c),
+      `<span class="badge ${pct(v.c,total)>=20?'badge-red':pct(v.c,total)>=10?'badge-amber':'badge-green'}">${pct(v.c,total)}%</span>`,
+      topCat?`${topCat[0]} (${topCat[1]})`:'—'
+    ]};
+  });
+
+  openModal(
+    `🎯 ${_reasonLabel(sourceCol)}: "${reasonValue}"`,
+    `Step 1 of 3 · ${fi(total)} entries · ${storeArr.length} stores · ${mktSet.size} markets · ${rmSet.size} RMs`,
+    `<div style="background:#f5f0ff;border:1px solid #e0d4f7;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:12px;color:#5a3da0;">
+      <strong>📍 Drill path:</strong> Reason → <strong>Stores</strong> → Category → Other Reasons & Staff &nbsp;·&nbsp; click a store to continue
+    </div>
+    <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric red"><div class="lbl">Total entries</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Stores</div><div class="val">${storeArr.length}</div></div>
+      <div class="metric"><div class="lbl">Markets</div><div class="val">${mktSet.size}</div></div>
+      <div class="metric green"><div class="lbl">RMs</div><div class="val">${rmSet.size}</div></div>
+    </div>
+    <div class="section-lbl">Stores reporting this reason — click any store to see category breakdown</div>
+    ${sortableTbl(['Store','Market','RM','Count','Share%','Top category'],tblRows,
+      ['Total','','',fi(total),'100%',''])}`
+  );
+};
+
+window.showReasonStoreCatModal=function(reasonValue,sourceCol,store){
+  const idx=_reasonColIdx(sourceCol);
+  const{storeIdx,catIdx}=_LS_IDX;
+  if(idx<0||storeIdx<0||catIdx<0){alert('Required columns not found');return;}
+  const f=getFilters();
+  const matchRows=filterLS(f).filter(r=>
+    String(r[idx]||'').trim()===reasonValue&&
+    String(r[storeIdx]||'').trim()===store
+  );
+  const total=matchRows.length;
+
+  // Group by category
+  const catMap={};
+  matchRows.forEach(r=>{
+    const c=String(r[catIdx]||'(blank)').trim()||'(blank)';
+    if(!catMap[c])catMap[c]={c:0};
+    catMap[c].c++;
+  });
+  const catArr=Object.entries(catMap).sort((a,b)=>b[1].c-a[1].c);
+
+  const tblRows=catArr.map(([k,v])=>({cells:[
+    `<span class="clickable" onclick="showReasonStoreCatDetailModal('${reasonValue.replace(/'/g,"\\'")}','${sourceCol}','${store.replace(/'/g,"\\'")}','${k.replace(/'/g,"\\'")}')">${k}</span>`,
+    fi(v.c),
+    `<span class="badge ${pct(v.c,total)>=30?'badge-red':pct(v.c,total)>=15?'badge-amber':'badge-green'}">${pct(v.c,total)}%</span>`
+  ]}));
+
+  // Get store info from any row
+  const wkStore=matchRows[0]?matchRows[0]._wkStore:null;
+  const ctxLine=wkStore?`${wkStore.market} · ${wkStore.cluster} · RM: ${wkStore.rm}`:'';
+
+  openModal(
+    `🏪 ${store} · "${reasonValue}"`,
+    `Step 2 of 3 · ${fi(total)} entries · ${catArr.length} categories ${ctxLine?'· '+ctxLine:''}`,
+    `<div style="background:#f5f0ff;border:1px solid #e0d4f7;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:12px;color:#5a3da0;">
+      <strong>📍 Drill path:</strong> Reason → Stores → <strong>Category</strong> → Other Reasons & Staff &nbsp;·&nbsp; click a category to continue
+    </div>
+    <div class="metrics" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric red"><div class="lbl">Total entries</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Categories</div><div class="val">${catArr.length}</div></div>
+      <div class="metric green"><div class="lbl">Reason</div><div class="val" style="font-size:14px">${reasonValue}</div></div>
+    </div>
+    <div class="section-lbl">Category bifurcation for this store + reason — click a category to see other reasons & staff</div>
+    ${sortableTbl(['Category','Count','Share%'],tblRows,
+      ['Total',fi(total),'100%'])}`
+  );
+};
+
+window.showReasonStoreCatDetailModal=function(reasonValue,sourceCol,store,category){
+  const{storeIdx,catIdx,empIdx,custIdx}=_LS_IDX;
+  const reasonIdx=_LS_IDX.reasonIdx;
+  const subReasonIdx=_LS_IDX.subReasonIdx;
+  if(storeIdx<0||catIdx<0){alert('Required columns not found');return;}
+  const f=getFilters();
+  // Filter to: this store + this category + drilled-in reason value
+  const drilledIdx=_reasonColIdx(sourceCol);
+  const matchRows=filterLS(f).filter(r=>
+    String(r[storeIdx]||'').trim()===store&&
+    (String(r[catIdx]||'(blank)').trim()||'(blank)')===category&&
+    (drilledIdx<0||(String(r[drilledIdx]||'').trim()||'(blank)')===reasonValue)
+  );
+  const total=matchRows.length;
+
+  // OTHER reasons: aggregate by the OTHER reason column (not the one we drilled in via)
+  const otherIdx=_otherReasonColIdx(sourceCol);
+  const otherLabel=_reasonLabel(sourceCol==='I'?'J':'I');
+  const otherMap={};
+  if(otherIdx>=0){
+    matchRows.forEach(r=>{
+      const v=String(r[otherIdx]||'').trim()||'(blank)';
+      otherMap[v]=(otherMap[v]||0)+1;
+    });
+  }
+  const otherArr=Object.entries(otherMap).sort((a,b)=>b[1]-a[1]);
+
+  // Same-source reasons (e.g., if we drilled via col I, also show col I distribution among these rows)
+  const sameIdx=_reasonColIdx(sourceCol);
+  const sameLabel=_reasonLabel(sourceCol);
+  const sameMap={};
+  if(sameIdx>=0){
+    matchRows.forEach(r=>{
+      const v=String(r[sameIdx]||'').trim()||'(blank)';
+      sameMap[v]=(sameMap[v]||0)+1;
+    });
+  }
+  const sameArr=Object.entries(sameMap).sort((a,b)=>b[1]-a[1]);
+
+  // Staff-wise counts
+  const staffMap={};
+  if(empIdx>=0){
+    matchRows.forEach(r=>{
+      const v=String(r[empIdx]||'').trim()||'(no staff)';
+      if(!staffMap[v])staffMap[v]={c:0,reasons:{},cust:{}};
+      staffMap[v].c++;
+      if(otherIdx>=0){
+        const rk=String(r[otherIdx]||'').trim()||'(blank)';
+        staffMap[v].reasons[rk]=(staffMap[v].reasons[rk]||0)+1;
+      }
+      if(custIdx>=0){
+        const ck=String(r[custIdx]||'').trim();
+        if(ck)staffMap[v].cust[ck]=(staffMap[v].cust[ck]||0)+1;
+      }
+    });
+  }
+  const staffArr=Object.entries(staffMap).sort((a,b)=>b[1].c-a[1].c);
+
+  // Customer type
+  const custMap={};
+  if(custIdx>=0){
+    matchRows.forEach(r=>{const v=String(r[custIdx]||'').trim();if(v)custMap[v]=(custMap[v]||0)+1;});
+  }
+  const custArr=Object.entries(custMap).sort((a,b)=>b[1]-a[1]);
+
+  const sameTbl=sameArr.length?sortableTbl(
+    [sameLabel,'Count','Share%'],
+    sameArr.map(([k,v])=>({cells:[
+      k===reasonValue?`<strong style="color:var(--red)">${k} ◀ drilled-in</strong>`:k,
+      fi(v),
+      `${pct(v,total)}%`
+    ]})),
+    ['Total',fi(total),'100%']
+  ):'<p style="color:var(--muted);font-size:12px;">—</p>';
+
+  const otherTbl=otherArr.length?sortableTbl(
+    [otherLabel,'Count','Share%'],
+    otherArr.map(([k,v])=>({cells:[
+      `<span class="clickable" onclick="showReasonStoreCatDetailModal('${k.replace(/'/g,"\\'")}','${sourceCol==='I'?'J':'I'}','${store.replace(/'/g,"\\'")}','${category.replace(/'/g,"\\'")}')">${k}</span>`,
+      fi(v),
+      `${pct(v,total)}%`
+    ]})),
+    ['Total',fi(total),'100%']
+  ):'<p style="color:var(--muted);font-size:12px;">No data in '+otherLabel+' column.</p>';
+
+  const staffTbl=staffArr.length?sortableTbl(
+    ['Staff','Count','Share%','Top reason','Customer type'],
+    staffArr.map(([k,v])=>{
+      const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+      const custB=Object.entries(v.cust).map(([ck,cv])=>`${ck}:${cv}`).join(', ');
+      return{cells:[
+        `<span class="clickable" onclick="showStaffDrillModal('${k.replace(/'/g,"\\'")}','${store.replace(/'/g,"\\'")}','${category.replace(/'/g,"\\'")}','${reasonValue.replace(/'/g,"\\'")}','${sourceCol}')">${k}</span>`,
+        fi(v.c),
+        `<span class="badge ${pct(v.c,total)>=30?'badge-red':pct(v.c,total)>=15?'badge-amber':'badge-green'}">${pct(v.c,total)}%</span>`,
+        topR?`${topR[0]} (${topR[1]})`:'—',
+        custB||'—'
+      ]};
+    }),
+    ['Total','',fi(total),'','']
+  ):'<p style="color:var(--muted);font-size:12px;">No staff data in this column.</p>';
+
+  const wkStore=matchRows[0]?matchRows[0]._wkStore:null;
+  const ctxLine=wkStore?`${wkStore.market} · ${wkStore.cluster} · RM: ${wkStore.rm}`:'';
+
+  openModal(
+    `📦 ${store} · ${category} · "${reasonValue}"`,
+    `Step 3 of 3 · ${fi(total)} entries (filtered to drilled reason) · ${staffArr.length} staff ${ctxLine?'· '+ctxLine:''}`,
+    `<div style="background:#f5f0ff;border:1px solid #e0d4f7;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:12px;color:#5a3da0;">
+      <strong>📍 Drill path:</strong> Reason → Stores → Category → <strong>Other Reasons & Staff</strong> ✓ deepest level<br>
+      <span style="font-size:11px;">Showing only entries where ${_reasonLabel(sourceCol)} = <strong>"${reasonValue}"</strong></span>
+    </div>
+    <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric red"><div class="lbl">Total entries</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Staff involved</div><div class="val">${staffArr.length}</div></div>
+      <div class="metric"><div class="lbl">Other reasons</div><div class="val">${otherArr.length}</div></div>
+      <div class="metric green"><div class="lbl">Customer types</div><div class="val">${custArr.length}</div></div>
+    </div>
+
+    ${custArr.length?`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1.25rem;">
+      ${custArr.map(([k,v])=>`
+        <div style="background:${k.toLowerCase().includes('new')?'#e6f5ee':k.toLowerCase().includes('repeat')?'#e6eefa':'#fff8e6'};border-radius:10px;padding:10px 18px;text-align:center;">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">${k}</div>
+          <div style="font-size:24px;font-weight:600;">${fi(v)}</div>
+          <div style="font-size:11px;color:var(--muted);">${pct(v,total)}%</div>
+        </div>`).join('')}
+    </div>`:''}
+
+    <div class="two-col" style="margin-bottom:1.25rem;">
+      <div>
+        <div class="section-lbl">${sameLabel}</div>
+        ${sameTbl}
+      </div>
+      <div>
+        <div class="section-lbl">${otherLabel} (click to switch drill)</div>
+        ${otherTbl}
+      </div>
+    </div>
+
+    <div class="section-lbl">👥 Staff-wise breakdown</div>
+    ${staffTbl}`
+  );
+};
+
+// ── STAFF DRILLDOWN ─────────────────────────────────────
+// Click a staff name in Step 3 → shows that staff's specific loss entries
+// (filtered by store + category + drilled-in reason). Includes ← Back button.
+window.showStaffDrillModal=function(staff,store,category,reasonValue,sourceCol){
+  const{storeIdx,catIdx,empIdx,custIdx,nameIdx,phoneIdx,dateIdx,timingIdx,notesIdx,subCatIdx,sizeIdx,styleIdx,colorIdx,polishIdx,designIdx,reasonIdx,subReasonIdx}=_LS_IDX;
+  if(empIdx<0){alert('Employee column not found');return;}
+  const f=getFilters();
+  const drilledIdx=_reasonColIdx(sourceCol);
+  const matchRows=filterLS(f).filter(r=>
+    String(r[empIdx]||'').trim()===staff&&
+    String(r[storeIdx]||'').trim()===store&&
+    (String(r[catIdx]||'(blank)').trim()||'(blank)')===category&&
+    (drilledIdx<0||(String(r[drilledIdx]||'').trim()||'(blank)')===reasonValue)
+  );
+  const total=matchRows.length;
+
+  // Customer type
+  const custMap={};
+  if(custIdx>=0){
+    matchRows.forEach(r=>{const v=String(r[custIdx]||'').trim();if(v)custMap[v]=(custMap[v]||0)+1;});
+  }
+  const custArr=Object.entries(custMap).sort((a,b)=>b[1]-a[1]);
+
+  // Other reason col distribution among staff's entries
+  const otherIdx=_otherReasonColIdx(sourceCol);
+  const otherLabel=_reasonLabel(sourceCol==='I'?'J':'I');
+  const otherMap={};
+  if(otherIdx>=0){
+    matchRows.forEach(r=>{const v=String(r[otherIdx]||'').trim()||'(blank)';otherMap[v]=(otherMap[v]||0)+1;});
+  }
+  const otherArr=Object.entries(otherMap).sort((a,b)=>b[1]-a[1]);
+
+  // Time of day pattern
+  const timeMap={};
+  matchRows.forEach(r=>{if(r._time)timeMap[r._time]=(timeMap[r._time]||0)+1;});
+  const timeArr=Object.entries(timeMap).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+
+  // Phone quality
+  let mobValid=0,mobBad=0;
+  matchRows.forEach(r=>{if(r._mob==='valid')mobValid++;else mobBad++;});
+
+  // Detail rows (raw entries)
+  const detailRows=matchRows.slice(0,200).map(r=>{
+    const d=dateIdx>=0?fmtDK(r._dk||toDayKey(r[dateIdx])||''):'';
+    const tm=timingIdx>=0?String(r[timingIdx]||''):'';
+    const cust=nameIdx>=0?String(r[nameIdx]||''):'';
+    const ph=phoneIdx>=0?String(r[phoneIdx]||''):'';
+    const phBadge=r._mob==='valid'?'<span class="badge badge-green">✓</span>':'<span class="badge badge-red">⚠</span>';
+    const ctype=custIdx>=0?String(r[custIdx]||''):'';
+    const subCat=subCatIdx>=0?String(r[subCatIdx]||''):'';
+    const sz=sizeIdx>=0?String(r[sizeIdx]||''):'';
+    const sty=styleIdx>=0?String(r[styleIdx]||''):'';
+    const otherR=otherIdx>=0?String(r[otherIdx]||''):'';
+    const notes=notesIdx>=0?String(r[notesIdx]||''):'';
+    return{cells:[
+      d||'—',
+      tm||'—',
+      ctype||'—',
+      cust||'—',
+      `${ph||'—'} ${phBadge}`,
+      subCat||sz||sty?[subCat,sz,sty].filter(Boolean).join(' / '):'—',
+      otherR||'—',
+      notes?`<span title="${notes.replace(/"/g,'&quot;')}">${notes.length>40?notes.slice(0,40)+'…':notes}</span>`:'—'
+    ]};
+  });
+
+  const wkStore=matchRows[0]?matchRows[0]._wkStore:null;
+  const ctxLine=wkStore?`${wkStore.market} · ${wkStore.cluster} · RM: ${wkStore.rm}`:'';
+
+  openModal(
+    `👤 ${staff} — ${total} loss${total!==1?'es':''} captured`,
+    `Store: ${store} · Category: ${category} · Reason: "${reasonValue}" ${ctxLine?'· '+ctxLine:''}`,
+    `<div style="display:flex;gap:8px;margin-bottom:1rem;">
+      <button class="filter-btn" onclick="showReasonStoreCatDetailModal('${reasonValue.replace(/'/g,"\\'")}','${sourceCol}','${store.replace(/'/g,"\\'")}','${category.replace(/'/g,"\\'")}')">← Back to category drill</button>
+      <button class="filter-btn" onclick="showReasonStoreCatModal('${reasonValue.replace(/'/g,"\\'")}','${sourceCol}','${store.replace(/'/g,"\\'")}')">← Back to store</button>
+      <button class="filter-btn" onclick="showReasonStoresModal('${reasonValue.replace(/'/g,"\\'")}','${sourceCol}')">← Back to reason stores</button>
+    </div>
+
+    <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric red"><div class="lbl">Loss entries by ${staff}</div><div class="val">${fi(total)}</div><div class="sub">store + category + reason</div></div>
+      <div class="metric"><div class="lbl">Time slots</div><div class="val">${timeArr.length}</div><div class="sub">${timeArr[0]?'peak '+timeArr.sort((a,b)=>b[1]-a[1])[0][0]:'—'}</div></div>
+      <div class="metric ${mobBad>mobValid?'red':mobValid>0?'green':'amber'}"><div class="lbl">Phone quality</div><div class="val">${pct(mobValid,total)}%</div><div class="sub">${mobValid} valid · ${mobBad} bad</div></div>
+      <div class="metric green"><div class="lbl">Customer types</div><div class="val">${custArr.length}</div><div class="sub">${custArr.map(([k,v])=>`${k}:${v}`).join(' · ')||'—'}</div></div>
+    </div>
+
+    ${custArr.length?`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1.25rem;">
+      ${custArr.map(([k,v])=>`
+        <div style="background:${k.toLowerCase().includes('new')?'#e6f5ee':k.toLowerCase().includes('repeat')?'#e6eefa':'#fff8e6'};border-radius:10px;padding:10px 18px;text-align:center;">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">${k}</div>
+          <div style="font-size:24px;font-weight:600;">${fi(v)}</div>
+          <div style="font-size:11px;color:var(--muted);">${pct(v,total)}%</div>
+        </div>`).join('')}
+    </div>`:''}
+
+    ${otherArr.length?`
+      <div class="section-lbl">${otherLabel} distribution within ${staff}'s entries</div>
+      ${sortableTbl([otherLabel,'Count','Share%'],
+        otherArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+        ['Total',fi(total),'100%'])}
+    `:''}
+
+    ${timeArr.length?`
+      <div class="section-lbl">⏱️ Time slot pattern</div>
+      ${sortableTbl(['Time slot','Count','Share%'],
+        timeArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}%`]})),
+        ['Total',fi(total),'100%'])}
+    `:''}
+
+    <div class="section-lbl">📋 Loss entries by ${staff}${total>200?' (showing first 200 of '+fi(total)+')':''}</div>
+    ${sortableTbl(
+      ['Date','Time','Cust type','Customer','Phone','Product','Other reason','Notes'],
+      detailRows,
+      null
+    )}`
+  );
+};
+
 window.showReasonModal=function(reason){
   const f=getFilters();
   const{storeIdx,catIdx,reasonIdx,custIdx}=_LS_IDX;
@@ -2397,7 +2922,7 @@ window.showLSDRMModal=function(rm){
   const storeRows=sGrp.map(([k,v])=>{
     const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
     const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
-    const wkStore=_WK.stores.find(s=>s.outlet===k||s.outletNorm===normStore(k));
+    const wkStore=(()=>{for(const kk of storeKeys(k))if(_WK_STORE_BY_KEY[kk])return _WK_STORE_BY_KEY[kk];return null;})();
     const wkDays=wkStore?(daysInRange(wkStore.days,f)):[];
     const stW=wkDays.reduce((s,d)=>s+d.w,0),stB=wkDays.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
     return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,wkStore?wkStore.market:'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
@@ -2427,7 +2952,7 @@ window.showLSDMktModal=function(market){
   const storeRows=sGrp.map(([k,v])=>{
     const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
     const topC=Object.entries(v.cats).sort((a,b)=>b[1]-a[1])[0];
-    const wkStore=_WK.stores.find(s=>s.outlet===k||s.outletNorm===normStore(k));
+    const wkStore=(()=>{for(const kk of storeKeys(k))if(_WK_STORE_BY_KEY[kk])return _WK_STORE_BY_KEY[kk];return null;})();
     const wkDays=wkStore?(daysInRange(wkStore.days,f)):[];
     const stW=wkDays.reduce((s,d)=>s+d.w,0),stB=wkDays.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
     return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,rows.find(r=>String(r[storeIdx]||'')===k)?._rm||'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
@@ -2449,7 +2974,7 @@ window.showStoreModal=function(storeName){
   const{storeIdx,reasonIdx,catIdx,qtyIdx,valIdx,empIdx,custIdx}=_LS_IDX;
   const rows=filterLS(f).filter(r=>String(r[storeIdx]||'')===storeName||normStore(String(r[storeIdx]||''))===normStore(storeName));
   const total=rows.length;
-  const wkStore=_WK.stores.find(s=>s.outlet===storeName||s.outletNorm===normStore(storeName));
+  const wkStore=(()=>{for(const kk of storeKeys(storeName))if(_WK_STORE_BY_KEY[kk])return _WK_STORE_BY_KEY[kk];return null;})();
   const days=wkStore?(daysInRange(wkStore.days,f)):[];
   const stW=days.reduce((s,d)=>s+d.w,0),stB=days.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
   // Build day map for this store
@@ -2581,8 +3106,12 @@ function mergeMonths(keys){
   const clusters=[...new Set(stores.map(s=>s.cluster).filter(Boolean))].sort();
   const markets=[...new Set(stores.map(s=>s.market).filter(Boolean))].sort();
   const dks=days.map(d=>d.dk);
-  // Rebuild store→RM map
-  stores.forEach(s=>{_STORE_RM[s.outletNorm]=s.rm;});
+  // Rebuild store→RM map and multi-key lookup
+  _WK_STORE_BY_KEY={};
+  stores.forEach(s=>{
+    _STORE_RM[s.outletNorm]=s.rm;
+    storeKeys(s.outlet).forEach(k=>{if(!_WK_STORE_BY_KEY[k])_WK_STORE_BY_KEY[k]=s;});
+  });
   return{wk:{stores,days,rms,clusters,markets,dks},lsHeaders,lsRows:allLSRows};
 }
 
