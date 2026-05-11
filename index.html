@@ -116,6 +116,8 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
     <button class="tab-btn" onclick="show('lsd')">Loss Detail</button>
     <button class="tab-btn" onclick="show('cat')">Category Analysis</button>
     <button class="tab-btn" onclick="show('wkly')">Weekly Comparison</button>
+    <button class="tab-btn" onclick="show('ask')">💬 Ask</button>
+    <button class="tab-btn" onclick="show('ins')">💎 Insights</button>
     <button class="tab-btn" onclick="show('audit')">Audit</button>
   </div>
   <div id="ov" class="pane active"><div class="loading">Loading...</div></div>
@@ -123,6 +125,8 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
   <div id="lsd" class="pane"><div class="loading">Loading...</div></div>
   <div id="cat" class="pane"><div class="loading">Loading...</div></div>
   <div id="wkly" class="pane"><div class="loading">Loading...</div></div>
+  <div id="ask" class="pane"><div class="loading">Loading...</div></div>
+  <div id="ins" class="pane"><div class="loading">Loading...</div></div>
   <div id="audit" class="pane"><div class="loading">Loading...</div></div>
 </div>
 <div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
@@ -289,13 +293,17 @@ function toDayKey(raw){
 
 // ── TAB SWITCHING ─────────────────────────────────────────
 function show(id){
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','wkly','audit'][i]===id));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','wkly','ask','ins','audit'][i]===id));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
+  // Clear Insights scope when navigating to any other tab so its modals aren't accidentally scoped
+  if(id!=='ins')window._insScope=null;
   if(id==='audit')renderAudit();
   if(id==='lsd')renderLossDetail();
   if(id==='cat')renderCatAnalysis();
   if(id==='wkly')renderWeekly();
+  if(id==='ask')renderAsk();
+  if(id==='ins')renderInsights();
 }
 function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
 function openModal(title,sub,html){
@@ -892,6 +900,7 @@ function renderAll(){
   if(document.getElementById('lsd').classList.contains('active'))renderLossDetail();
   if(document.getElementById('cat').classList.contains('active'))renderCatAnalysis();
   if(document.getElementById('wkly').classList.contains('active'))renderWeekly();
+  if(document.getElementById('ins').classList.contains('active'))renderInsights();
   if(document.getElementById('audit').classList.contains('active'))renderAudit();
 }
 
@@ -1261,6 +1270,1598 @@ function renderWeekly(){
 
 // Legacy alias kept in case anything else references it
 function renderWoWSection(rows){return'';}
+
+// ═══════════════════════════════════════════════════════════
+// ASK TAB — natural-language pattern-matching Q&A engine
+// ═══════════════════════════════════════════════════════════
+
+// Each "intent" is a { match, name, run } object. match returns 0..1 confidence based on the question.
+// run(question, ctx) returns { title, html } to render as the answer.
+const ASK_HISTORY=[]; // {q, a:{title,html}}
+
+function renderAsk(){
+  const target=document.getElementById('ask');
+  target.innerHTML=`
+    <div style="background:linear-gradient(135deg,#e6eefa 0%,#fff 100%);border:1px solid #b8c8e8;border-left:4px solid var(--blue);border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">💬 Ask About Loss Data</div>
+      <div style="font-size:12px;color:var(--muted);">Type a question in plain English. Pattern-matched against your data. Try the suggested chips below for examples.</div>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:1rem;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+        <input id="ask-input" type="text" placeholder="e.g., 'top 5 RMs by loss' or 'stores with no walkins in Bangalore'" 
+          style="flex:1;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s;"
+          onkeydown="if(event.key==='Enter')askSubmit()" 
+          onfocus="this.style.borderColor='var(--blue)'" 
+          onblur="this.style.borderColor='var(--border)'">
+        <button onclick="askSubmit()" style="padding:10px 18px;background:var(--blue);color:#fff;border:0;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;">Ask →</button>
+        <button onclick="askClear()" style="padding:10px 14px;background:#fff;color:var(--muted);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px;">Clear</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:600;text-transform:uppercase;">💡 Try these (click any chip):</div>
+      <div id="ask-chips" style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${[
+          // Rankings
+          'Top 5 RMs by loss',
+          'Top 10 stores by loss',
+          'Worst markets',
+          'Top reasons',
+          'Top categories',
+          'Staff with most loss',
+          'Best performing RM',
+          'Worst conversion stores',
+          // Customer
+          'New vs repeat customers',
+          'Top reason for new customers',
+          'Top reason for repeat customers',
+          'New customer share by RM',
+          // Filtered
+          'Top reason in Bangalore',
+          'Categories in Hyderabad',
+          // Time
+          'Loss by day of week',
+          'Peak loss hours',
+          'Reason by time slot',
+          'Sudden spike last 7 days',
+          'Most improved stores',
+          // Comparison
+          'Compare Bangalore vs Chennai',
+          'Pareto 80% concentration',
+          'WoW comparison',
+          // Quality
+          'Stores with no walkins',
+          'Bad phone numbers',
+          'Low coverage stores',
+          'Abnormal reasons',
+          'Stores with both issues',
+          'Pending walkins sync',
+          // Help
+          'Help'
+        ].map(q=>`<button class="ask-chip" onclick="askChip('${q.replace(/'/g,"\\'")}')" style="background:#f0f5ff;color:var(--blue);border:1px solid #d0dffa;border-radius:18px;padding:5px 12px;font-size:11px;cursor:pointer;font-weight:500;transition:all .15s;" onmouseover="this.style.background='var(--blue)';this.style.color='#fff'" onmouseout="this.style.background='#f0f5ff';this.style.color='var(--blue)'">${q}</button>`).join('')}
+      </div>
+    </div>
+
+    <div id="ask-results"></div>`;
+  renderAskHistory();
+}
+
+window.askSubmit=function(){
+  const inp=document.getElementById('ask-input');
+  if(!inp)return;
+  const q=inp.value.trim();
+  if(!q)return;
+  const ans=answerQuestion(q);
+  ASK_HISTORY.unshift({q,a:ans,ts:new Date()});
+  if(ASK_HISTORY.length>20)ASK_HISTORY.pop();
+  inp.value='';
+  renderAskHistory();
+};
+window.askChip=function(q){
+  const inp=document.getElementById('ask-input');
+  if(inp)inp.value=q;
+  askSubmit();
+};
+window.askClear=function(){
+  ASK_HISTORY.length=0;
+  renderAskHistory();
+};
+function renderAskHistory(){
+  const target=document.getElementById('ask-results');
+  if(!target)return;
+  if(!ASK_HISTORY.length){
+    target.innerHTML=`<div style="background:#fafbfd;border:1px dashed var(--border);border-radius:var(--radius);padding:30px;text-align:center;color:var(--muted);font-size:13px;">
+      💬 Ask a question above or click a suggestion chip to get started.
+    </div>`;
+    return;
+  }
+  target.innerHTML=ASK_HISTORY.map((h,i)=>`
+    <div class="card" style="margin-bottom:1rem;">
+      <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0;">Q</div>
+        <div style="flex:1;font-size:14px;font-weight:600;color:var(--text);padding-top:4px;">${h.q}</div>
+        <div style="font-size:10px;color:var(--muted);">${h.ts.toLocaleTimeString()}</div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:10px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0;">A</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">${h.a.title||'Result'}</div>
+          ${h.a.html}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// ── Q&A ENGINE ─────────────────────────────────────────────
+function answerQuestion(qOrig){
+  const q=qOrig.toLowerCase().trim();
+  const f=getFilters();
+  const rows=filterLS(f);
+  const{storeIdx,catIdx,reasonIdx,custIdx,empIdx,phoneIdx}=_LS_IDX;
+  const ctx={q,qOrig,f,rows,storeIdx,catIdx,reasonIdx,custIdx,empIdx,phoneIdx};
+
+  if(!rows||!rows.length){
+    return{title:'No data',html:'<p style="color:var(--muted);font-size:12px;">No loss data in current filter selection. Try changing the Month / RM / Market filter at the top.</p>'};
+  }
+
+  // Detect N (top-N count)
+  const nMatch=q.match(/\btop\s*(\d+)\b/)||q.match(/\b(\d+)\s+best\b/)||q.match(/\b(\d+)\s+worst\b/);
+  const N=nMatch?parseInt(nMatch[1]):10;
+
+  // ── INTENT MATCHING ──────────────────────────────────────
+
+  // 1. Total / count summary
+  if(/^how many|^total|^count\b|how much loss/.test(q)&&!/store|rm|market|reason|category/.test(q)){
+    const totalQ=fi(rows.length);
+    const synced=rows.filter(r=>r._syncedDk).length;
+    return{title:`Total loss entries`,html:`
+      <div class="metrics" style="grid-template-columns:repeat(3,1fr);">
+        <div class="metric red"><div class="lbl">Total LS entries</div><div class="val">${totalQ}</div></div>
+        <div class="metric green"><div class="lbl">Synced to walkins</div><div class="val">${fi(synced)}</div></div>
+        <div class="metric amber"><div class="lbl">Pending sync</div><div class="val">${fi(rows.length-synced)}</div></div>
+      </div>`};
+  }
+
+  // 2. How many stores / RMs / markets etc.
+  if(/^how many\s+stores?\b/.test(q)){
+    const set=new Set(rows.map(r=>storeIdx>=0?String(r[storeIdx]||'').trim():'').filter(Boolean));
+    return{title:'Stores with loss entries',html:`<p style="font-size:14px;"><strong style="color:var(--red);font-size:24px;">${set.size}</strong> unique stores have loss entries in current filter.</p>`};
+  }
+  if(/^how many\s+rms?\b|how many regional/.test(q)){
+    const set=new Set(rows.map(r=>r._rm).filter(v=>v&&v!=='Unknown'));
+    return{title:'RMs with loss entries',html:`<p style="font-size:14px;"><strong style="color:var(--red);font-size:24px;">${set.size}</strong> RMs are linked to loss entries in current filter.</p>`};
+  }
+  if(/^how many\s+markets?\b/.test(q)){
+    const set=new Set(rows.map(r=>r._wkStore?r._wkStore.market:null).filter(v=>v&&v!=='Unknown'));
+    return{title:'Markets with loss',html:`<p style="font-size:14px;"><strong style="color:var(--red);font-size:24px;">${set.size}</strong> markets have loss entries in current filter.</p>`};
+  }
+  if(/^how many\s+reasons?\b/.test(q)&&reasonIdx>=0){
+    const set=new Set(rows.map(r=>String(r[reasonIdx]||'').trim()).filter(Boolean));
+    return{title:'Unique reasons',html:`<p style="font-size:14px;"><strong style="color:var(--red);font-size:24px;">${set.size}</strong> unique reasons in column I.</p>`};
+  }
+  if(/^how many\s+categor/.test(q)&&catIdx>=0){
+    const set=new Set(rows.map(r=>String(r[catIdx]||'').trim()).filter(Boolean));
+    return{title:'Unique categories',html:`<p style="font-size:14px;"><strong style="color:var(--red);font-size:24px;">${set.size}</strong> unique categories.</p>`};
+  }
+
+  // 3. Top RMs / stores / markets / reasons / categories — grouped queries
+  // Helper: build top-N list of a dimension
+  const topByDim=(getter,labelSing,labelPlur,clickFn)=>{
+    const map={};
+    rows.forEach(r=>{const k=getter(r);if(k){if(!map[k])map[k]=0;map[k]++;}});
+    const arr=Object.entries(map).sort((a,b)=>b[1]-a[1]);
+    if(!arr.length)return null;
+    const top=arr.slice(0,N);
+    const total=arr.reduce((s,[,v])=>s+v,0);
+    const tblRows=top.map(([k,v],i)=>({cells:[
+      `<strong>#${i+1}</strong>`,
+      clickFn?`<span class="clickable" onclick="${clickFn(k)}">${k}</span>`:`<strong>${k}</strong>`,
+      fi(v),
+      `<span class="badge ${pct(v,total)>=20?'badge-red':pct(v,total)>=10?'badge-amber':'badge-green'}">${pct(v,total)}%</span>`
+    ]}));
+    return{title:`Top ${top.length} ${labelPlur} by loss · ${arr.length} total`,
+      html:`<p style="font-size:11px;color:var(--muted);margin-bottom:8px;">${fi(total)} entries across ${arr.length} ${labelPlur}.</p>
+      ${sortableTbl(['Rank',labelSing,'Loss count','Share%'],tblRows,['','Total of top '+top.length,fi(top.reduce((s,[,v])=>s+v,0)),pct(top.reduce((s,[,v])=>s+v,0),total)+'%'])}`};
+  };
+
+  if(/\b(top|best|most|highest|leading)\b.*\brm/.test(q)||/\brm.*\b(by|loss)\b/.test(q)||/loss by rm/.test(q)){
+    const r=topByDim(r=>r._rm&&r._rm!=='Unknown'?r._rm:null,'RM','RMs',k=>`showRMModal('${k.replace(/'/g,"\\\\'")}')`);
+    if(r)return r;
+  }
+  if(/\b(top|best|most|highest)\b.*\bstore/.test(q)||/store.*\bby\b.*loss/.test(q)||/loss by store/.test(q)){
+    const r=topByDim(r=>storeIdx>=0?(String(r[storeIdx]||'').trim()||null):null,'Store','stores',k=>`showStoreModal('${k.replace(/'/g,"\\\\'")}')`);
+    if(r)return r;
+  }
+  if(/\b(top|best|most|highest|worst|leading)\b.*\bmarket/.test(q)||/loss by market/.test(q)||/markets? by/.test(q)){
+    const r=topByDim(r=>r._wkStore&&r._wkStore.market&&r._wkStore.market!=='Unknown'?r._wkStore.market:null,'Market','markets',k=>`showMarketModal('${k.replace(/'/g,"\\\\'")}')`);
+    if(r)return r;
+  }
+  if(/\b(top|main|biggest|highest|leading)\b.*\breason/.test(q)||/reasons?$/.test(q)||/loss by reason/.test(q)||/why.*loss/.test(q)){
+    if(reasonIdx<0)return{title:'Reason column not found',html:'<p style="color:var(--muted)">Reason column (col I) not detected in your sheet.</p>'};
+    const r=topByDim(r=>String(r[reasonIdx]||'').trim()||null,'Reason','reasons',k=>`showReasonStoresModal('${k.replace(/'/g,"\\\\'")}','I')`);
+    if(r)return r;
+  }
+  if(/\b(top|main|biggest)\b.*\bspecific reason/.test(q)||/specific reasons?$/.test(q)||/loss by specific/.test(q)){
+    if(_LS_IDX.subReasonIdx<0)return{title:'Specific reason column not found',html:'<p style="color:var(--muted)">Column J (Reason) not detected.</p>'};
+    const sIdx=_LS_IDX.subReasonIdx;
+    const r=topByDim(r=>String(r[sIdx]||'').trim()||null,'Specific reason','specific reasons',k=>`showReasonStoresModal('${k.replace(/'/g,"\\\\'")}','J')`);
+    if(r)return r;
+  }
+  if(/\b(top|biggest|highest|leading)\b.*\bcategor/.test(q)||/loss by categor/.test(q)||/categories?$/.test(q)){
+    if(catIdx<0)return{title:'Category column not found',html:'<p style="color:var(--muted)">Category column not detected.</p>'};
+    const r=topByDim(r=>String(r[catIdx]||'').trim()||null,'Category','categories',k=>`showCatDetailModal('${k.replace(/'/g,"\\\\'")}')`);
+    if(r)return r;
+  }
+  if(/\b(top|most)\b.*\b(staff|salesperson|employee)/.test(q)||/staff with most/.test(q)||/staff.*loss/.test(q)){
+    if(empIdx<0)return{title:'Staff column not found',html:'<p style="color:var(--muted)">Employee column not detected.</p>'};
+    const r=topByDim(r=>String(r[empIdx]||'').trim()||null,'Staff','staff members',null);
+    if(r)return r;
+  }
+  if(/\bworst\b.*market/.test(q)){
+    return topByDim(r=>r._wkStore&&r._wkStore.market&&r._wkStore.market!=='Unknown'?r._wkStore.market:null,'Market','worst markets',k=>`showMarketModal('${k.replace(/'/g,"\\\\'")}')`);
+  }
+
+  // 4. Filter "in [market]" / "for [RM]" / "in [category]" → top reason for that filter
+  const inMatch=q.match(/\b(?:in|at|for|under)\s+([a-z][a-z0-9 &/'-]{1,40})\b/);
+  if(inMatch){
+    const target=inMatch[1].trim();
+    // Try matching to RM, market, store, category, reason
+    const allRMs=[...new Set(rows.map(r=>r._rm).filter(v=>v&&v!=='Unknown'))];
+    const allMkts=[...new Set(rows.map(r=>r._wkStore?r._wkStore.market:null).filter(v=>v&&v!=='Unknown'))];
+    const allStores=[...new Set(rows.map(r=>storeIdx>=0?String(r[storeIdx]||'').trim():null).filter(Boolean))];
+    const allCats=catIdx>=0?[...new Set(rows.map(r=>String(r[catIdx]||'').trim()).filter(Boolean))]:[];
+    const fuzzy=(arr,t)=>{const m=arr.find(x=>x.toLowerCase()===t)||arr.find(x=>x.toLowerCase().startsWith(t))||arr.find(x=>x.toLowerCase().includes(t));return m;};
+    const matchedRM=fuzzy(allRMs,target);
+    const matchedMkt=fuzzy(allMkts,target);
+    const matchedStore=fuzzy(allStores,target);
+    const matchedCat=fuzzy(allCats,target);
+    let scoped=null,scopeLabel='';
+    if(matchedRM){scoped=rows.filter(r=>r._rm===matchedRM);scopeLabel=`RM: ${matchedRM}`;}
+    else if(matchedMkt){scoped=rows.filter(r=>r._wkStore&&r._wkStore.market===matchedMkt);scopeLabel=`Market: ${matchedMkt}`;}
+    else if(matchedStore){scoped=rows.filter(r=>storeIdx>=0&&String(r[storeIdx]||'').trim()===matchedStore);scopeLabel=`Store: ${matchedStore}`;}
+    else if(matchedCat){scoped=rows.filter(r=>catIdx>=0&&String(r[catIdx]||'').trim()===matchedCat);scopeLabel=`Category: ${matchedCat}`;}
+    if(scoped&&scoped.length){
+      const askingReason=/reason|why|cause/.test(q);
+      const askingCategory=/categor/.test(q);
+      const askingStore=/\bstore/.test(q)&&!matchedStore;
+      const askingStaff=/staff|salesperson|employee/.test(q);
+      let dimGetter,dimLabel;
+      if(askingReason&&reasonIdx>=0){dimGetter=r=>String(r[reasonIdx]||'').trim()||null;dimLabel='Reason';}
+      else if(askingCategory&&catIdx>=0){dimGetter=r=>String(r[catIdx]||'').trim()||null;dimLabel='Category';}
+      else if(askingStore){dimGetter=r=>storeIdx>=0?String(r[storeIdx]||'').trim()||null:null;dimLabel='Store';}
+      else if(askingStaff&&empIdx>=0){dimGetter=r=>String(r[empIdx]||'').trim()||null;dimLabel='Staff';}
+      else if(reasonIdx>=0){dimGetter=r=>String(r[reasonIdx]||'').trim()||null;dimLabel='Reason';}
+      const map={};scoped.forEach(r=>{const k=dimGetter(r);if(k){if(!map[k])map[k]=0;map[k]++;}});
+      const arr=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,N);
+      const total=scoped.length;
+      const tblRows=arr.map(([k,v],i)=>({cells:[`#${i+1}`,k,fi(v),`<span class="badge ${pct(v,total)>=20?'badge-red':pct(v,total)>=10?'badge-amber':'badge-green'}">${pct(v,total)}%</span>`]}));
+      return{title:`${dimLabel} breakdown for ${scopeLabel} · ${fi(total)} entries`,
+        html:`${sortableTbl(['Rank',dimLabel,'Count','Share%'],tblRows,null)}`};
+    }
+  }
+
+  // 5. New vs repeat customer
+  if(/new vs repeat|new\/repeat|customer type|repeat customer/.test(q)){
+    if(custIdx<0)return{title:'Customer Type column not found',html:'<p>Customer type column not detected.</p>'};
+    const cc=getCustCounts(rows);
+    const total=cc.new+cc.repeat+cc.other;
+    return{title:'New vs Repeat customer breakdown',html:`
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
+        <div style="background:#e6f5ee;border-radius:10px;padding:14px 24px;text-align:center;flex:1;min-width:140px;">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">🆕 New</div>
+          <div style="font-size:32px;font-weight:600;color:var(--green);">${fi(cc.new)}</div>
+          <div style="font-size:12px;color:var(--muted);">${pct(cc.new,total)}%</div>
+        </div>
+        <div style="background:#e6eefa;border-radius:10px;padding:14px 24px;text-align:center;flex:1;min-width:140px;">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">🔁 Repeat</div>
+          <div style="font-size:32px;font-weight:600;color:var(--blue);">${fi(cc.repeat)}</div>
+          <div style="font-size:12px;color:var(--muted);">${pct(cc.repeat,total)}%</div>
+        </div>
+        ${cc.other?`<div style="background:#fff8e6;border-radius:10px;padding:14px 24px;text-align:center;flex:1;min-width:140px;">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">Other</div>
+          <div style="font-size:32px;font-weight:600;color:var(--amber);">${fi(cc.other)}</div>
+          <div style="font-size:12px;color:var(--muted);">${pct(cc.other,total)}%</div>
+        </div>`:''}
+      </div>`};
+  }
+
+  // 6. Stores with no walkins / zero walkins
+  if(/no walkin|zero walkin|stores? without walkin|stores? with no walkin/.test(q)){
+    const f2=getFilters();
+    const zeroStores=_WK.stores.filter(s=>{
+      if(f2.market&&s.market!==f2.market)return false;
+      if(f2.cluster&&s.cluster!==f2.cluster)return false;
+      if(f2.rm&&s.rm!==f2.rm)return false;
+      const dRange=daysInRange(s.days,f2);
+      const w=dRange.reduce((a,d)=>a+d.w,0);
+      const daysWith=dRange.filter(d=>d.w>0).length;
+      return w===0||daysWith===0;
+    });
+    const tblRows=zeroStores.slice(0,100).map(s=>({cells:[
+      `<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,
+      s.market,s.cluster,s.rm,
+      '<span class="badge badge-red">🔴 No walkin data</span>'
+    ]}));
+    return{title:`${zeroStores.length} stores with no walkin data`+(zeroStores.length>100?' (showing top 100)':''),html:zeroStores.length?sortableTbl(['Store','Market','Cluster','RM','Status'],tblRows,null):'<p style="color:var(--green);font-size:13px;">✅ All stores have walkin data in current filter.</p>'};
+  }
+
+  // 7. Bad phone numbers
+  if(/bad phone|invalid phone|phone quality|phone number issue|missing phone/.test(q)){
+    if(phoneIdx<0)return{title:'Phone column not found',html:'<p>Phone column not detected.</p>'};
+    const bad=rows.filter(r=>r._mob!=='valid');
+    const byStore={};
+    bad.forEach(r=>{const sn=storeIdx>=0?String(r[storeIdx]||'').trim()||'Unknown':'Unknown';if(!byStore[sn])byStore[sn]={c:0,total:0,market:'—',rm:'—'};byStore[sn].c++;if(r._wkStore){byStore[sn].market=r._wkStore.market;byStore[sn].rm=r._wkStore.rm;}});
+    rows.forEach(r=>{const sn=storeIdx>=0?String(r[storeIdx]||'').trim()||'Unknown':'Unknown';if(byStore[sn])byStore[sn].total++;});
+    const arr=Object.entries(byStore).sort((a,b)=>b[1].c/Math.max(b[1].total,1)-a[1].c/Math.max(a[1].total,1)).slice(0,N);
+    const tblRows=arr.map(([k,v])=>{const p=pct(v.c,v.total);return{cells:[
+      `<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      v.market,v.rm,fi(v.total),fi(v.c),`<span class="badge ${p>50?'badge-red':p>20?'badge-amber':'badge-green'}">${p}%</span>`
+    ]}});
+    return{title:`Top ${arr.length} stores with bad phone numbers · ${fi(bad.length)} bad of ${fi(rows.length)} total (${pct(bad.length,rows.length)}%)`,
+      html:sortableTbl(['Store','Market','RM','Total','Bad','Bad%'],tblRows,null)};
+  }
+
+  // 8. Low coverage stores
+  if(/low coverage|coverage gap|poor coverage|stores with low/.test(q)){
+    const f2=getFilters();
+    const filtStores=filterStores(_WK.stores,f2);
+    const audit=filtStores.map(s=>{
+      const dRange=daysInRange(s.days,f2);
+      const w=dRange.reduce((a,d)=>a+d.w,0);const b=dRange.reduce((a,d)=>a+d.b,0);const nb=w-b;
+      const ls=rows.filter(r=>storeIdx>=0&&normStore(String(r[storeIdx]||''))===s.outletNorm).length;
+      return{outlet:s.outlet,market:s.market,rm:s.rm,nb,ls,cov:pct(ls,nb)};
+    }).filter(s=>s.nb>0).sort((a,b)=>a.cov-b.cov).slice(0,N);
+    const tblRows=audit.map(s=>({cells:[
+      `<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,
+      s.market,s.rm,fi(s.nb),fi(s.ls),`<span class="badge ${s.cov<10?'badge-red':s.cov<25?'badge-amber':'badge-green'}">${s.cov}%</span>`
+    ]}));
+    return{title:`${audit.length} stores with lowest loss coverage`,html:sortableTbl(['Store','Market','RM','Non-buyers','Loss captured','Coverage%'],tblRows,null)};
+  }
+
+  // 9. Abnormal reasons
+  if(/abnormal|rare reason|unusual reason|notify|flagged/.test(q)){
+    const subRIdx=_LS_IDX.subReasonIdx>=0&&_LS_IDX.subReasonIdx!==reasonIdx?_LS_IDX.subReasonIdx:reasonIdx;
+    if(subRIdx<0)return{title:'No reason column',html:'<p>Reason column not detected.</p>'};
+    const ABNORMAL=new Set(['discount expectation not met','offer not valid in store','perceived poor value for money','polish not available','personalization not available','found substitute product at lower price','found cheaper online','(blank)','fit not comfortable','repair service not available','price mismatch with website']);
+    const map={};
+    rows.forEach(r=>{const v=String(r[subRIdx]||'').trim()||'(blank)';if(!map[v])map[v]={c:0,stores:new Set()};map[v].c++;const sn=storeIdx>=0?String(r[storeIdx]||''):'';if(sn)map[v].stores.add(sn);});
+    const total=rows.length;
+    const flagged=Object.entries(map).filter(([k,v])=>{const lc=k.toLowerCase();return ABNORMAL.has(lc)||pct(v.c,total)<2;}).sort((a,b)=>b[1].c-a[1].c);
+    if(!flagged.length)return{title:'No abnormal reasons',html:'<p style="color:var(--green);font-size:13px;">✅ No abnormal reasons detected.</p>'};
+    const tblRows=flagged.map(([k,v])=>{const sh=pct(v.c,total);const lc=k.toLowerCase();const flag=ABNORMAL.has(lc)?'<span class="badge badge-red">🔴 Notify</span>':'<span class="badge badge-amber">🟡 Rare</span>';return{cells:[
+      `<span class="clickable" onclick="showReasonStoresModal('${k.replace(/'/g,"\\'")}','${subRIdx===_LS_IDX.subReasonIdx?'J':'I'}')">${k}</span>`,
+      fi(v.c),fi(v.stores.size),`${sh}%`,flag
+    ]}});
+    return{title:`${flagged.length} abnormal/notify-worthy reasons`,html:sortableTbl(['Reason','Count','Stores','Share%','Flag'],tblRows,null)};
+  }
+
+  // 10. WoW comparison
+  if(/wow|week.over.week|week on week|weekly/.test(q)){
+    return{title:'Weekly comparison',html:'<p style="font-size:13px;">For full weekly comparison, see the <strong>Weekly Comparison</strong> tab. Quick summary:</p><p style="color:var(--muted);font-size:12px;">Switch to that tab from the navigation above.</p>'};
+  }
+
+  // 11. "Show [X]" lookups - store/RM/market/reason
+  const showMatch=q.match(/^(?:show|details? for|details? on|info on|tell me about|about)\s+(.+)$/i);
+  if(showMatch){
+    const target=showMatch[1].trim().toLowerCase();
+    const allRMs=[...new Set(rows.map(r=>r._rm).filter(v=>v&&v!=='Unknown'))];
+    const allMkts=[...new Set(rows.map(r=>r._wkStore?r._wkStore.market:null).filter(v=>v&&v!=='Unknown'))];
+    const allStores=storeIdx>=0?[...new Set(rows.map(r=>String(r[storeIdx]||'').trim()).filter(Boolean))]:[];
+    const fuzzy=(arr,t)=>arr.find(x=>x.toLowerCase()===t)||arr.find(x=>x.toLowerCase().includes(t));
+    const m=fuzzy(allMkts,target);if(m)return{title:`Click to open Market modal: ${m}`,html:`<button onclick="showMarketModal('${m.replace(/'/g,"\\'")}')" style="padding:8px 16px;background:var(--blue);color:#fff;border:0;border-radius:6px;cursor:pointer;font-weight:600;">Open ${m}</button>`};
+    const r=fuzzy(allRMs,target);if(r)return{title:`Click to open RM modal: ${r}`,html:`<button onclick="showRMModal('${r.replace(/'/g,"\\'")}')" style="padding:8px 16px;background:var(--blue);color:#fff;border:0;border-radius:6px;cursor:pointer;font-weight:600;">Open RM ${r}</button>`};
+    const s=fuzzy(allStores,target);if(s)return{title:`Click to open Store modal: ${s}`,html:`<button onclick="showStoreModal('${s.replace(/'/g,"\\'")}')" style="padding:8px 16px;background:var(--blue);color:#fff;border:0;border-radius:6px;cursor:pointer;font-weight:600;">Open ${s}</button>`};
+  }
+
+  // 12. Stores under [RM]
+  const underMatch=q.match(/stores?\s+under\s+(.+)/);
+  if(underMatch){
+    const target=underMatch[1].trim().toLowerCase();
+    const rm=[..._WK.rms].find(r=>r.toLowerCase()===target||r.toLowerCase().includes(target));
+    if(rm)return{title:`Stores under RM: ${rm}`,html:`<button onclick="showRMModal('${rm.replace(/'/g,"\\'")}')" style="padding:8px 16px;background:var(--blue);color:#fff;border:0;border-radius:6px;cursor:pointer;font-weight:600;">Open RM ${rm}</button>`};
+  }
+
+  // ═══ DEEP-ANALYSIS INTENTS ═══════════════════════════════════════════
+
+  // 13. Top reason for NEW customers / Top reason for REPEAT customers
+  if(/(top|main|biggest)\s+reason.*\b(new|fresh|first)\b.*customer|top reason for new|new customer.*reason/.test(q)){
+    if(reasonIdx<0||custIdx<0)return{title:'Required columns missing',html:'<p>Reason or Customer Type column not found.</p>'};
+    const newRows=rows.filter(r=>isNewVal(String(r[custIdx]||'').toLowerCase().trim()));
+    if(!newRows.length)return{title:'No new customers found',html:'<p style="color:var(--muted)">No NEW-type entries in current filter.</p>'};
+    const map={};newRows.forEach(r=>{const k=String(r[reasonIdx]||'').trim();if(k){if(!map[k])map[k]=0;map[k]++;}});
+    const arr=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,N);
+    const total=newRows.length;
+    return{title:`🆕 Top ${arr.length} reasons for NEW customer loss · ${fi(total)} entries`,
+      html:sortableTbl(['Reason','Count','Share%'],arr.map(([k,v])=>({cells:[`<span class="clickable" onclick="showReasonStoresModal('${k.replace(/'/g,"\\'")}','I')">${k}</span>`,fi(v),`<span class="badge ${pct(v,total)>=20?'badge-red':pct(v,total)>=10?'badge-amber':'badge-green'}">${pct(v,total)}%</span>`]})),null)};
+  }
+  if(/(top|main|biggest)\s+reason.*\b(repeat|repeated|returning)\b.*customer|top reason for repeat|repeat customer.*reason/.test(q)){
+    if(reasonIdx<0||custIdx<0)return{title:'Required columns missing',html:'<p>Reason or Customer Type column not found.</p>'};
+    const repRows=rows.filter(r=>isRepVal(String(r[custIdx]||'').toLowerCase().trim()));
+    if(!repRows.length)return{title:'No repeat customers found',html:'<p style="color:var(--muted)">No REPEAT-type entries in current filter.</p>'};
+    const map={};repRows.forEach(r=>{const k=String(r[reasonIdx]||'').trim();if(k){if(!map[k])map[k]=0;map[k]++;}});
+    const arr=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,N);
+    const total=repRows.length;
+    return{title:`🔁 Top ${arr.length} reasons for REPEAT customer loss · ${fi(total)} entries`,
+      html:sortableTbl(['Reason','Count','Share%'],arr.map(([k,v])=>({cells:[`<span class="clickable" onclick="showReasonStoresModal('${k.replace(/'/g,"\\'")}','I')">${k}</span>`,fi(v),`<span class="badge ${pct(v,total)>=20?'badge-red':pct(v,total)>=10?'badge-amber':'badge-green'}">${pct(v,total)}%</span>`]})),null)};
+  }
+
+  // 14. Reason breakdown by time slot
+  if(/reason.*\bby\s+time|reason.*\btime\s*slot|time.*reason|peak loss hour|peak hour|reason.*hour/.test(q)){
+    if(reasonIdx<0)return{title:'Reason column missing',html:'<p>Reason column not detected.</p>'};
+    const timeMap={};
+    rows.forEach(r=>{if(!r._time)return;if(!timeMap[r._time])timeMap[r._time]={total:0,reasons:{}};timeMap[r._time].total++;const rsn=String(r[reasonIdx]||'').trim()||'(blank)';timeMap[r._time].reasons[rsn]=(timeMap[r._time].reasons[rsn]||0)+1;});
+    const arr=Object.entries(timeMap).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+    if(!arr.length)return{title:'No timing data',html:'<p style="color:var(--muted)">No time-slot data captured.</p>'};
+    const total=rows.filter(r=>r._time).length;
+    const tblRows=arr.map(([slot,v])=>{
+      const top=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+      const peak=arr.reduce((m,[,vv])=>vv.total>m?vv.total:m,0);
+      return{cells:[
+        slot,
+        fi(v.total),
+        `<span class="badge ${pct(v.total,total)>=15?'badge-red':pct(v.total,total)>=8?'badge-amber':'badge-green'}">${pct(v.total,total)}%</span>`,
+        v.total===peak?'<span class="badge badge-red">⚡ Peak</span>':v.total>=peak*.7?'<span class="badge badge-amber">High</span>':'',
+        top?`${top[0]} (${top[1]})`:'—'
+      ]};
+    });
+    return{title:`⏱️ Loss by time slot · top reason per slot`,html:sortableTbl(['Time slot','Total','Share%','Status','Top reason'],tblRows,['Total',fi(total),'100%','',''])};
+  }
+
+  // 15. Loss by day of week
+  if(/day.*of.*week|weekday|monday|sunday|saturday|day.wise/.test(q)){
+    const dowMap={};
+    const dowNames=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    rows.forEach(r=>{if(!r._dk)return;const d=new Date(r._dk+'T00:00:00');if(isNaN(d))return;const dow=d.getDay();if(!dowMap[dow])dowMap[dow]=0;dowMap[dow]++;});
+    const total=Object.values(dowMap).reduce((s,v)=>s+v,0);
+    if(!total)return{title:'No date data',html:'<p style="color:var(--muted)">No parseable dates.</p>'};
+    const peak=Math.max(...Object.values(dowMap));
+    const tblRows=[0,1,2,3,4,5,6].map(d=>{
+      const v=dowMap[d]||0;
+      return{cells:[dowNames[d],fi(v),`<span class="badge ${pct(v,total)>=20?'badge-red':pct(v,total)>=14?'badge-amber':'badge-green'}">${pct(v,total)}%</span>`,v===peak&&v>0?'<span class="badge badge-red">⚡ Peak</span>':'']};
+    });
+    return{title:'📅 Loss by day of week',html:sortableTbl(['Day','Count','Share%','Status'],tblRows,['Total',fi(total),'100%',''])};
+  }
+
+  // 16. Compare X vs Y
+  const cmpMatch=q.match(/compar\w*\s+(.+?)\s+(?:vs|versus|with|and|to)\s+(.+)$/);
+  if(cmpMatch){
+    const a=cmpMatch[1].trim().toLowerCase();
+    const b=cmpMatch[2].trim().toLowerCase();
+    const allRMs=[...new Set(rows.map(r=>r._rm).filter(v=>v&&v!=='Unknown'))];
+    const allMkts=[...new Set(rows.map(r=>r._wkStore?r._wkStore.market:null).filter(v=>v&&v!=='Unknown'))];
+    const allStores=storeIdx>=0?[...new Set(rows.map(r=>String(r[storeIdx]||'').trim()).filter(Boolean))]:[];
+    const fuzzy=(arr,t)=>arr.find(x=>x.toLowerCase()===t)||arr.find(x=>x.toLowerCase().includes(t));
+    let matchA=null,matchB=null,dim='';
+    matchA=fuzzy(allRMs,a);matchB=fuzzy(allRMs,b);if(matchA&&matchB)dim='RM';
+    if(!dim){matchA=fuzzy(allMkts,a);matchB=fuzzy(allMkts,b);if(matchA&&matchB)dim='Market';}
+    if(!dim){matchA=fuzzy(allStores,a);matchB=fuzzy(allStores,b);if(matchA&&matchB)dim='Store';}
+    if(dim){
+      const filterFn=(name)=>rows.filter(r=>{
+        if(dim==='RM')return r._rm===name;
+        if(dim==='Market')return r._wkStore&&r._wkStore.market===name;
+        if(dim==='Store')return storeIdx>=0&&String(r[storeIdx]||'').trim()===name;
+        return false;
+      });
+      const rA=filterFn(matchA),rB=filterFn(matchB);
+      const ccA=getCustCounts(rA),ccB=getCustCounts(rB);
+      const topReason=(rs)=>{const m={};rs.forEach(r=>{const k=reasonIdx>=0?String(r[reasonIdx]||''):'';if(k)m[k]=(m[k]||0)+1;});return Object.entries(m).sort((a,b)=>b[1]-a[1])[0];};
+      const tA=topReason(rA),tB=topReason(rB);
+      const topCat=(rs)=>{const m={};rs.forEach(r=>{const k=catIdx>=0?String(r[catIdx]||''):'';if(k)m[k]=(m[k]||0)+1;});return Object.entries(m).sort((a,b)=>b[1]-a[1])[0];};
+      const cA=topCat(rA),cB=topCat(rB);
+      const phBad=(rs)=>rs.filter(r=>r._mob!=='valid').length;
+      const phA=phBad(rA),phB=phBad(rB);
+      return{title:`Compare ${dim}: ${matchA} vs ${matchB}`,html:`
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+          <div style="background:#e6f5ee;border-radius:10px;padding:14px;">
+            <div style="font-weight:600;color:var(--green);margin-bottom:8px;">${matchA}</div>
+            <div style="font-size:13px;line-height:1.7;">
+              <div><strong>Total loss:</strong> ${fi(rA.length)}</div>
+              <div><strong>Stores affected:</strong> ${new Set(rA.map(r=>storeIdx>=0?String(r[storeIdx]||''):'')).size}</div>
+              <div><strong>New customers:</strong> ${fi(ccA.new)} (${pct(ccA.new,ccA.new+ccA.repeat+ccA.other)}%)</div>
+              <div><strong>Repeat customers:</strong> ${fi(ccA.repeat)} (${pct(ccA.repeat,ccA.new+ccA.repeat+ccA.other)}%)</div>
+              <div><strong>Top reason:</strong> ${tA?tA[0]+' ('+tA[1]+')':'—'}</div>
+              <div><strong>Top category:</strong> ${cA?cA[0]+' ('+cA[1]+')':'—'}</div>
+              <div><strong>Bad phone%:</strong> ${pct(phA,rA.length)}%</div>
+            </div>
+          </div>
+          <div style="background:#e6eefa;border-radius:10px;padding:14px;">
+            <div style="font-weight:600;color:var(--blue);margin-bottom:8px;">${matchB}</div>
+            <div style="font-size:13px;line-height:1.7;">
+              <div><strong>Total loss:</strong> ${fi(rB.length)}</div>
+              <div><strong>Stores affected:</strong> ${new Set(rB.map(r=>storeIdx>=0?String(r[storeIdx]||''):'')).size}</div>
+              <div><strong>New customers:</strong> ${fi(ccB.new)} (${pct(ccB.new,ccB.new+ccB.repeat+ccB.other)}%)</div>
+              <div><strong>Repeat customers:</strong> ${fi(ccB.repeat)} (${pct(ccB.repeat,ccB.new+ccB.repeat+ccB.other)}%)</div>
+              <div><strong>Top reason:</strong> ${tB?tB[0]+' ('+tB[1]+')':'—'}</div>
+              <div><strong>Top category:</strong> ${cB?cB[0]+' ('+cB[1]+')':'—'}</div>
+              <div><strong>Bad phone%:</strong> ${pct(phB,rB.length)}%</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:1rem;padding:10px;background:#fff8e6;border-radius:8px;font-size:12px;">
+          <strong>📊 Difference:</strong> ${matchA} has <strong>${rA.length-rB.length>0?'+':''}${fi(rA.length-rB.length)}</strong> more loss than ${matchB} (${rB.length>0?(rA.length>rB.length?'+':'')+Math.round((rA.length-rB.length)/rB.length*100)+'%':''})
+        </div>`};
+    }
+    return{title:'Comparison not matched',html:`<p style="color:var(--muted);font-size:12px;">I couldn't find both "${a}" and "${b}" as RMs, Markets, or Stores. Check spelling.</p>`};
+  }
+
+  // 17. Pareto / 80% concentration
+  if(/pareto|80\s*percent|80%|concentrat/.test(q)){
+    const dim=/store/.test(q)?'store':/rm|regional/.test(q)?'rm':/market/.test(q)?'market':'store';
+    const getter=dim==='rm'?(r=>r._rm&&r._rm!=='Unknown'?r._rm:null):dim==='market'?(r=>r._wkStore?r._wkStore.market:null):(r=>storeIdx>=0?String(r[storeIdx]||'').trim()||null:null);
+    const map={};rows.forEach(r=>{const k=getter(r);if(k){if(!map[k])map[k]=0;map[k]++;}});
+    const arr=Object.entries(map).sort((a,b)=>b[1]-a[1]);
+    const total=arr.reduce((s,[,v])=>s+v,0);
+    let cum=0,cnt80=0;
+    for(const [,v] of arr){cum+=v;cnt80++;if(cum>=total*0.8)break;}
+    const topPercent=Math.round(cnt80/arr.length*100);
+    return{title:`📊 Pareto: ${cnt80} ${dim}s (top ${topPercent}%) cause 80% of loss`,
+      html:`<p style="font-size:13px;margin-bottom:10px;">Out of <strong>${arr.length}</strong> ${dim}s, just <strong>${cnt80}</strong> account for 80% (${fi(Math.round(total*0.8))}) of total ${fi(total)} loss entries.</p>
+      ${sortableTbl(['Rank',dim.charAt(0).toUpperCase()+dim.slice(1),'Count','Cumulative','Share%','Cum%'],
+        arr.slice(0,Math.max(cnt80,N)).map(([k,v],i)=>{const csum=arr.slice(0,i+1).reduce((s,[,vv])=>s+vv,0);return{cells:[`#${i+1}${i<cnt80?' ⭐':''}`,k,fi(v),fi(csum),`${pct(v,total)}%`,`${pct(csum,total)}%`],_cls:i<cnt80?'audit-red':''};}),null,r=>r._cls)}`};
+  }
+
+  // 18. Worst conversion / best conversion (uses walkin data)
+  if(/(worst|best)\s+conversion|conversion.*\b(rm|store|market)/.test(q)){
+    const dim=/store/.test(q)?'store':/market/.test(q)?'market':'rm';
+    const f2=getFilters();
+    const filtStores=filterStores(_WK.stores,f2);
+    const map={};
+    filtStores.forEach(s=>{
+      const dRange=daysInRange(s.days,f2);
+      const w=dRange.reduce((a,d)=>a+d.w,0);const b=dRange.reduce((a,d)=>a+d.b,0);
+      const k=dim==='rm'?s.rm:dim==='market'?s.market:s.outlet;
+      if(!k||k==='Unknown')return;
+      if(!map[k])map[k]={w:0,b:0};
+      map[k].w+=w;map[k].b+=b;
+    });
+    const isWorst=/worst/.test(q);
+    const arr=Object.entries(map).filter(([,v])=>v.w>=10).map(([k,v])=>({k,w:v.w,b:v.b,conv:pct(v.b,v.w)})).sort((a,b)=>isWorst?a.conv-b.conv:b.conv-a.conv).slice(0,N);
+    return{title:`${isWorst?'⚠️ Worst':'🏆 Best'} ${arr.length} ${dim}s by conversion%`,
+      html:sortableTbl(['Rank',dim.charAt(0).toUpperCase()+dim.slice(1),'Walkins','Bills','Conv%'],
+        arr.map((r,i)=>({cells:[`#${i+1}`,r.k,fi(r.w),fi(r.b),`<span class="badge ${r.conv>=40?'badge-green':r.conv>=25?'badge-amber':'badge-red'}">${r.conv}%</span>`]})),null)};
+  }
+
+  // 19. Stores with both bad phone AND low coverage (data quality double-issue)
+  if(/(both|two|multiple|all).*(issue|problem)|stores? with.*phone.*coverage|stores? with.*coverage.*phone|data quality issue|worst data/.test(q)){
+    const f2=getFilters();
+    const filtStores=filterStores(_WK.stores,f2);
+    const issueStores=[];
+    filtStores.forEach(s=>{
+      const dRange=daysInRange(s.days,f2);
+      const w=dRange.reduce((a,d)=>a+d.w,0);const b=dRange.reduce((a,d)=>a+d.b,0);const nb=w-b;
+      const lsRows=rows.filter(r=>storeIdx>=0&&normStore(String(r[storeIdx]||''))===s.outletNorm);
+      const ls=lsRows.length;const cov=pct(ls,nb);
+      const badM=lsRows.filter(r=>r._mob!=='valid').length;const badPct=pct(badM,ls||1);
+      if(cov<25&&badPct>20&&nb>0)issueStores.push({s,cov,badPct,nb,ls,badM});
+    });
+    issueStores.sort((a,b)=>(a.cov+50-a.badPct)-(b.cov+50-b.badPct)); // worst combined first
+    const tblRows=issueStores.slice(0,N).map(({s,cov,badPct,nb,ls,badM})=>({cells:[
+      `<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,
+      s.market,s.rm,fi(nb),fi(ls),
+      `<span class="badge ${cov<10?'badge-red':'badge-amber'}">${cov}%</span>`,
+      `<span class="badge ${badPct>50?'badge-red':'badge-amber'}">${badPct}%</span>`,
+      '<span class="badge badge-red">🔴 Two issues</span>'
+    ]}));
+    return{title:`${issueStores.length} stores with BOTH low coverage AND bad phones`,
+      html:issueStores.length?sortableTbl(['Store','Market','RM','Non-buyers','Loss captured','Cov%','Bad phone%','Status'],tblRows,null):'<p style="color:var(--green);">✅ No stores with both issues found.</p>'};
+  }
+
+  // 20. Best performing RM / store (highest coverage)
+  if(/best performing|highest coverage|best rm|best store|top.*coverage/.test(q)){
+    const f2=getFilters();
+    const filtStores=filterStores(_WK.stores,f2);
+    const dim=/rm|regional/.test(q)?'rm':'store';
+    const map={};
+    filtStores.forEach(s=>{
+      const dRange=daysInRange(s.days,f2);
+      const w=dRange.reduce((a,d)=>a+d.w,0);const b=dRange.reduce((a,d)=>a+d.b,0);const nb=w-b;
+      const lsRows=rows.filter(r=>storeIdx>=0&&normStore(String(r[storeIdx]||''))===s.outletNorm);
+      const k=dim==='rm'?s.rm:s.outlet;
+      if(!k||k==='Unknown')return;
+      if(!map[k])map[k]={nb:0,ls:0,market:s.market,rm:s.rm};
+      map[k].nb+=nb;map[k].ls+=lsRows.length;
+    });
+    const arr=Object.entries(map).filter(([,v])=>v.nb>=10).map(([k,v])=>({k,...v,cov:pct(v.ls,v.nb)})).sort((a,b)=>b.cov-a.cov).slice(0,N);
+    return{title:`🏆 Top ${arr.length} ${dim}s by loss coverage`,
+      html:sortableTbl(['Rank',dim.charAt(0).toUpperCase()+dim.slice(1),'Non-buyers','Loss','Coverage%'],
+        arr.map((r,i)=>({cells:[`#${i+1}`,r.k,fi(r.nb),fi(r.ls),`<span class="badge ${r.cov>=50?'badge-green':r.cov>=25?'badge-amber':'badge-red'}">${r.cov}%</span>`]})),null)};
+  }
+
+  // 21. Pending walkins by market — how much LS data is unsynced
+  if(/pending|unsynced|not synced|missing walkins/.test(q)){
+    const map={};
+    rows.forEach(r=>{const m=r._wkStore?r._wkStore.market:'(no walkins yet)';if(!map[m])map[m]={total:0,pending:0};map[m].total++;if(!r._syncedDk)map[m].pending++;});
+    const arr=Object.entries(map).sort((a,b)=>b[1].pending-a[1].pending);
+    const tblRows=arr.map(([k,v])=>({cells:[k,fi(v.total),fi(v.pending),`<span class="badge ${pct(v.pending,v.total)>50?'badge-red':pct(v.pending,v.total)>20?'badge-amber':'badge-green'}">${pct(v.pending,v.total)}%</span>`]}));
+    return{title:`⏳ Pending walkins sync by market`,html:sortableTbl(['Market','Total LS','Pending','Pending%'],tblRows,null)};
+  }
+
+  // 22. Concentration / outliers — reasons with high store reach (affects many stores)
+  if(/many stores|high stores|widespread|spread across|reasons? affecting/.test(q)){
+    if(reasonIdx<0)return{title:'Reason column missing',html:'<p>Reason column not found.</p>'};
+    const map={};
+    rows.forEach(r=>{const k=String(r[reasonIdx]||'').trim();if(!k)return;if(!map[k])map[k]={c:0,stores:new Set()};map[k].c++;const sn=storeIdx>=0?String(r[storeIdx]||''):'';if(sn)map[k].stores.add(sn);});
+    const arr=Object.entries(map).sort((a,b)=>b[1].stores.size-a[1].stores.size).slice(0,N);
+    return{title:`Reasons with widest store reach (top ${arr.length})`,
+      html:sortableTbl(['Reason','Count','Stores affected','Avg per store'],
+        arr.map(([k,v])=>({cells:[`<span class="clickable" onclick="showReasonStoresModal('${k.replace(/'/g,"\\'")}','I')">${k}</span>`,fi(v.c),fi(v.stores.size),(v.c/v.stores.size).toFixed(1)]})),null)};
+  }
+
+  // 23. New customer share by RM / market
+  if(/new customer share|new customer.*\bby\b|share.*new customer/.test(q)){
+    if(custIdx<0)return{title:'Customer Type missing',html:'<p>Customer type column not found.</p>'};
+    const dim=/store/.test(q)?'store':/market/.test(q)?'market':'rm';
+    const getter=dim==='rm'?(r=>r._rm):dim==='market'?(r=>r._wkStore?r._wkStore.market:null):(r=>storeIdx>=0?String(r[storeIdx]||''):null);
+    const map={};
+    rows.forEach(r=>{const k=getter(r);if(!k||k==='Unknown')return;if(!map[k])map[k]={total:0,new:0,rep:0};map[k].total++;const c=String(r[custIdx]||'').toLowerCase().trim();if(isNewVal(c))map[k].new++;else if(isRepVal(c))map[k].rep++;});
+    const arr=Object.entries(map).filter(([,v])=>v.total>=10).map(([k,v])=>({k,...v,newPct:pct(v.new,v.total),repPct:pct(v.rep,v.total)})).sort((a,b)=>b.newPct-a.newPct).slice(0,N);
+    return{title:`🆕 New customer share by ${dim} (top ${arr.length})`,
+      html:sortableTbl([dim.charAt(0).toUpperCase()+dim.slice(1),'Total','New','New%','Repeat','Repeat%'],
+        arr.map(r=>({cells:[r.k,fi(r.total),fi(r.new),`<span class="badge ${r.newPct>=70?'badge-amber':'badge-green'}">${r.newPct}%</span>`,fi(r.rep),`${r.repPct}%`]})),null)};
+  }
+
+  // 24. Loss trend / spike detection — last 7/14 days vs prior period
+  if(/sudden spike|spike|trend|surge|increase.*loss|loss.*increase/.test(q)){
+    const allDks=[...new Set(rows.map(r=>r._dk).filter(Boolean))].sort();
+    if(allDks.length<14)return{title:'Need more data',html:`<p>Need at least 14 days of data for spike detection. Current: ${allDks.length} days.</p>`};
+    const last7=allDks.slice(-7);const prev7=allDks.slice(-14,-7);
+    const last7Set=new Set(last7);const prev7Set=new Set(prev7);
+    const map={};
+    rows.forEach(r=>{const sn=storeIdx>=0?String(r[storeIdx]||''):'';if(!sn)return;if(!map[sn])map[sn]={last:0,prev:0,rm:'',market:''};if(last7Set.has(r._dk))map[sn].last++;if(prev7Set.has(r._dk))map[sn].prev++;if(r._wkStore){map[sn].rm=r._wkStore.rm;map[sn].market=r._wkStore.market;}});
+    const arr=Object.entries(map).map(([k,v])=>({k,...v,delta:v.last-v.prev,pct:v.prev>0?Math.round((v.last-v.prev)/v.prev*100):(v.last>0?100:0)})).filter(r=>r.delta>0).sort((a,b)=>b.pct-a.pct).slice(0,N);
+    return{title:`📈 Top ${arr.length} stores with biggest loss spike (last 7d vs prior 7d)`,
+      html:arr.length?sortableTbl(['Store','Market','RM','Prior 7d','Last 7d','Δ','Spike%'],
+        arr.map(r=>({cells:[`<span class="clickable" onclick="showStoreModal('${r.k.replace(/'/g,"\\'")}')">${r.k}</span>`,r.market,r.rm,fi(r.prev),fi(r.last),`+${fi(r.delta)}`,`<span class="badge ${r.pct>=100?'badge-red':r.pct>=50?'badge-amber':'badge-green'}">+${r.pct}%</span>`]})),null):'<p style="color:var(--green)">✅ No stores with notable spikes.</p>'};
+  }
+
+  // 25. Most improved (last 7 vs prior 7) — opposite of spike
+  if(/most improved|improvement|loss.*decrease|reduced loss|less loss/.test(q)){
+    const allDks=[...new Set(rows.map(r=>r._dk).filter(Boolean))].sort();
+    if(allDks.length<14)return{title:'Need more data',html:`<p>Need at least 14 days. Current: ${allDks.length} days.</p>`};
+    const last7=allDks.slice(-7);const prev7=allDks.slice(-14,-7);
+    const last7Set=new Set(last7);const prev7Set=new Set(prev7);
+    const map={};
+    rows.forEach(r=>{const sn=storeIdx>=0?String(r[storeIdx]||''):'';if(!sn)return;if(!map[sn])map[sn]={last:0,prev:0,rm:'',market:''};if(last7Set.has(r._dk))map[sn].last++;if(prev7Set.has(r._dk))map[sn].prev++;if(r._wkStore){map[sn].rm=r._wkStore.rm;map[sn].market=r._wkStore.market;}});
+    const arr=Object.entries(map).map(([k,v])=>({k,...v,delta:v.last-v.prev,pct:v.prev>0?Math.round((v.last-v.prev)/v.prev*100):0})).filter(r=>r.delta<0&&r.prev>=3).sort((a,b)=>a.pct-b.pct).slice(0,N);
+    return{title:`📉 Top ${arr.length} most-improved stores (loss reduced last 7d vs prior 7d)`,
+      html:arr.length?sortableTbl(['Store','Market','RM','Prior 7d','Last 7d','Δ','Δ%'],
+        arr.map(r=>({cells:[`<span class="clickable" onclick="showStoreModal('${r.k.replace(/'/g,"\\'")}')">${r.k}</span>`,r.market,r.rm,fi(r.prev),fi(r.last),fi(r.delta),`<span class="badge badge-green">${r.pct}%</span>`]})),null):'<p style="color:var(--muted)">No notable improvements detected.</p>'};
+  }
+
+  // 26. Help / examples / "what can I ask"
+  if(/^help|what can i ask|examples?|list questions/.test(q)){
+    return{title:'💡 What you can ask',html:`
+      <div style="font-size:12px;line-height:1.9;">
+        <p style="font-size:13px;margin-bottom:10px;"><strong>Here's a comprehensive list of supported question patterns. Click chips above for quick examples.</strong></p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+          <div>
+            <strong style="color:var(--blue);">📊 Rankings</strong>
+            <ul style="margin:4px 0 12px 18px;padding:0;">
+              <li>top 5/10/20 RMs by loss</li>
+              <li>top stores · worst markets</li>
+              <li>best performing RM / store</li>
+              <li>worst conversion stores</li>
+              <li>staff with most loss</li>
+            </ul>
+            <strong style="color:var(--blue);">🎯 Filtered analysis</strong>
+            <ul style="margin:4px 0 12px 18px;padding:0;">
+              <li>top reason in [market]</li>
+              <li>category breakdown for [store]</li>
+              <li>staff in [market]</li>
+              <li>loss for [RM name]</li>
+            </ul>
+            <strong style="color:var(--blue);">🆕 Customer analysis</strong>
+            <ul style="margin:4px 0 12px 18px;padding:0;">
+              <li>new vs repeat customers</li>
+              <li>top reason for new customers</li>
+              <li>top reason for repeat customers</li>
+              <li>new customer share by RM</li>
+            </ul>
+          </div>
+          <div>
+            <strong style="color:var(--blue);">⏰ Time-based</strong>
+            <ul style="margin:4px 0 12px 18px;padding:0;">
+              <li>loss by day of week</li>
+              <li>peak loss hours</li>
+              <li>reason by time slot</li>
+              <li>sudden spike / trend</li>
+              <li>most improved stores</li>
+            </ul>
+            <strong style="color:var(--blue);">⚖️ Comparisons</strong>
+            <ul style="margin:4px 0 12px 18px;padding:0;">
+              <li>compare [A] vs [B]</li>
+              <li>WoW comparison</li>
+              <li>pareto / 80% concentration</li>
+            </ul>
+            <strong style="color:var(--blue);">🔍 Quality / audit</strong>
+            <ul style="margin:4px 0 12px 18px;padding:0;">
+              <li>stores with no walkins</li>
+              <li>bad phone numbers</li>
+              <li>low coverage stores</li>
+              <li>abnormal reasons</li>
+              <li>stores with both issues</li>
+              <li>pending walkins sync</li>
+            </ul>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin-top:10px;">💡 Tip: Adjust the count by saying "top 5", "top 20", etc.</p>
+      </div>`};
+  }
+
+  // ── FALLBACK ──
+  return{title:'Hmm — I didn\'t catch that',html:`
+    <p style="font-size:13px;color:var(--muted);margin-bottom:10px;">I couldn't match your question to a known pattern. Try one of these instead:</p>
+    <ul style="font-size:12px;color:var(--text);line-height:1.8;padding-left:20px;">
+      <li><strong>Rankings:</strong> "top 5 RMs by loss", "top 10 stores", "worst markets"</li>
+      <li><strong>Filtered:</strong> "top reason in Bangalore", "stores in Chennai", "category breakdown for store XYZ"</li>
+      <li><strong>Counts:</strong> "how many total loss", "how many stores", "how many reasons"</li>
+      <li><strong>Customer:</strong> "new vs repeat customers"</li>
+      <li><strong>Quality:</strong> "stores with no walkins", "bad phone numbers", "low coverage stores", "abnormal reasons"</li>
+      <li><strong>Drilldowns:</strong> "show Bangalore", "stores under [RM name]", "details for [store name]"</li>
+    </ul>
+    <p style="font-size:11px;color:var(--muted);margin-top:10px;">Click a chip above for an example, or rephrase using these patterns.</p>`};
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 💎 INSIGHTS TAB — pre-computed action-ready report
+// 3 sub-views: Market / RM / Store. Pick entity → see everything.
+// ═══════════════════════════════════════════════════════════════════
+
+let _insMode='market'; // 'market' | 'rm' | 'store'
+let _insEntity=''; // selected entity name (e.g., 'Bangalore')
+
+// Global scope flag — set while Insights is active so click-through modals respect entity
+window._insScope=null;
+
+// Filter a row array down to the current Insights scope (if any)
+function applyInsScope(rows){
+  const sc=window._insScope;
+  if(!sc||!sc.entity)return rows;
+  const{storeIdx}=_LS_IDX;
+  return rows.filter(r=>{
+    if(sc.mode==='market')return r._wkStore&&r._wkStore.market===sc.entity;
+    if(sc.mode==='rm')return r._rm===sc.entity;
+    if(sc.mode==='store')return storeIdx>=0&&String(r[storeIdx]||'').trim()===sc.entity;
+    return true;
+  });
+}
+function insScopeLabel(){
+  const sc=window._insScope;
+  if(!sc||!sc.entity)return '';
+  return`${sc.mode==='market'?'Market':sc.mode==='rm'?'RM':'Store'}: ${sc.entity}`;
+}
+
+function renderInsights(){
+  const target=document.getElementById('ins');
+  const f=getFilters();
+  // Temporarily clear scope while building the report so applyInsScope doesn't double-apply
+  // (the report builder filters scopedRows manually). We'll set scope AFTER, before HTML is injected.
+  window._insScope=null;
+  const rows=filterLS(f);
+  const{storeIdx}=_LS_IDX;
+
+  // Build dropdown options based on _insMode
+  const allMarkets=[...new Set(rows.map(r=>r._wkStore?r._wkStore.market:null).filter(v=>v&&v!=='Unknown'))].sort();
+  const allRMs=[...new Set(rows.map(r=>r._rm).filter(v=>v&&v!=='Unknown'))].sort();
+  const allStores=storeIdx>=0?[...new Set(rows.map(r=>String(r[storeIdx]||'').trim()).filter(Boolean))].sort():[];
+
+  let opts=[],modeLabel='';
+  if(_insMode==='market'){opts=allMarkets;modeLabel='Market';}
+  else if(_insMode==='rm'){opts=allRMs;modeLabel='RM';}
+  else{opts=allStores;modeLabel='Store';}
+
+  // Auto-select first option if none selected
+  if(opts.length&&!opts.includes(_insEntity))_insEntity=opts[0];
+
+  const subTabBtn=(mode,label,emoji)=>
+    `<button onclick="_insMode='${mode}';_insEntity='';renderInsights()" style="padding:10px 20px;border:0;background:${_insMode===mode?'var(--blue)':'var(--surface)'};color:${_insMode===mode?'#fff':'var(--muted)'};font-weight:600;font-size:13px;cursor:pointer;border-radius:8px 8px 0 0;border-bottom:${_insMode===mode?'3px solid var(--blue)':'3px solid transparent'};">${emoji} ${label}</button>`;
+
+  target.innerHTML=`
+    <div style="background:linear-gradient(135deg,#fff8e6 0%,#fff 100%);border:1px solid #f0d68a;border-left:4px solid var(--amber);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">💎 Insights — Pre-computed Action Report</div>
+      <div style="font-size:12px;color:var(--muted);">Pick a Market / RM / Store → see complete diagnostic + auto-detected red flags + recommended actions. No drilling required.</div>
+    </div>
+
+    <div style="display:flex;gap:8px;border-bottom:1px solid var(--border);margin-bottom:1rem;">
+      ${subTabBtn('market','Market','📍')}
+      ${subTabBtn('rm','RM','👤')}
+      ${subTabBtn('store','Store','🏪')}
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.5rem;background:var(--surface);padding:12px 16px;border-radius:8px;border:1px solid var(--border);">
+      <label style="font-size:12px;font-weight:600;color:var(--muted);">Select ${modeLabel}:</label>
+      <select onchange="_insEntity=this.value;renderInsights()" style="flex:1;max-width:380px;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
+        ${opts.length?opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}"${_insEntity===o?' selected':''}>${o}</option>`).join(''):'<option disabled>No data available</option>'}
+      </select>
+      <span style="font-size:11px;color:var(--muted);">${opts.length} ${modeLabel.toLowerCase()}${opts.length!==1?'s':''} available</span>
+    </div>
+
+    <div id="ins-report">${_insEntity?buildInsightReport(_insMode,_insEntity,rows,f):'<p style="color:var(--muted);font-size:13px;padding:2rem;text-align:center;">Select an entity above to see the report.</p>'}</div>`;
+  // Activate scope now so any modal opened from inside the Insights report respects it
+  if(_insEntity)window._insScope={mode:_insMode,entity:_insEntity};
+}
+
+// ── INSIGHT REPORT BUILDER ─────────────────────────────────
+function buildInsightReport(mode,entity,allRows,f){
+  const{storeIdx,catIdx,reasonIdx,custIdx,empIdx,phoneIdx,timingIdx,dateIdx,subReasonIdx,subCatIdx,sizeIdx,styleIdx,colorIdx}=_LS_IDX;
+  // Filter rows for this entity
+  const scopedRows=allRows.filter(r=>{
+    if(mode==='market')return r._wkStore&&r._wkStore.market===entity;
+    if(mode==='rm')return r._rm===entity;
+    if(mode==='store')return storeIdx>=0&&String(r[storeIdx]||'').trim()===entity;
+    return false;
+  });
+  if(!scopedRows.length){
+    return`<div class="err-card">No loss data for ${mode}: ${entity} in current filters.</div>`;
+  }
+  // Find related walkin store(s) — for store mode it's one, for RM/market it's many
+  const wkStoresInScope=_WK.stores.filter(s=>{
+    if(mode==='market')return s.market===entity;
+    if(mode==='rm')return s.rm===entity;
+    if(mode==='store')return s.outlet===entity||s.outletNorm===normStore(entity);
+    return false;
+  });
+
+  // ── Compute walkin metrics ─────────────────────────────
+  let totalW=0,totalB=0,daysWithData=new Set(),storesReporting=new Set();
+  wkStoresInScope.forEach(s=>{
+    const dRange=daysInRange(s.days,f);
+    dRange.forEach(d=>{
+      if(d.w>0){totalW+=d.w;daysWithData.add(d.dk);storesReporting.add(s.outletNorm);}
+      totalB+=d.b;
+    });
+  });
+  const totalLS=scopedRows.length;
+  const totalNB=totalW-totalB;
+  const convPct=pct(totalB,totalW);
+  const covPct=pct(totalLS,totalNB);
+  const zeroWalkinStores=wkStoresInScope.filter(s=>!storesReporting.has(s.outletNorm));
+
+  // ── Customer breakdown ─────────────────────────────────
+  const cc=getCustCounts(scopedRows);
+  const totalCust=cc.new+cc.repeat+cc.other;
+  const newPct=pct(cc.new,totalCust);
+  const repPct=pct(cc.repeat,totalCust);
+
+  // ── Reason breakdown (col I) ───────────────────────────
+  const reasonMap={};
+  scopedRows.forEach(r=>{if(reasonIdx<0)return;const k=String(r[reasonIdx]||'').trim()||'(blank)';if(!reasonMap[k])reasonMap[k]={c:0,new:0,rep:0,stores:new Set(),staff:new Set()};reasonMap[k].c++;const ct=String(r[custIdx]||'').toLowerCase().trim();if(isNewVal(ct))reasonMap[k].new++;else if(isRepVal(ct))reasonMap[k].rep++;const sn=storeIdx>=0?String(r[storeIdx]||''):'';if(sn)reasonMap[k].stores.add(sn);const stf=empIdx>=0?String(r[empIdx]||''):'';if(stf)reasonMap[k].staff.add(stf);});
+  const reasonArr=Object.entries(reasonMap).sort((a,b)=>b[1].c-a[1].c);
+
+  // ── Sub-reason (col J) ─────────────────────────────────
+  const subReasonMap={};
+  if(subReasonIdx>=0){
+    scopedRows.forEach(r=>{const k=String(r[subReasonIdx]||'').trim()||'(blank)';if(!subReasonMap[k])subReasonMap[k]={c:0,stores:new Set()};subReasonMap[k].c++;const sn=storeIdx>=0?String(r[storeIdx]||''):'';if(sn)subReasonMap[k].stores.add(sn);});
+  }
+  const subReasonArr=Object.entries(subReasonMap).sort((a,b)=>b[1].c-a[1].c);
+
+  // ── Category breakdown ─────────────────────────────────
+  const catMap={};
+  scopedRows.forEach(r=>{if(catIdx<0)return;const k=String(r[catIdx]||'').trim()||'(blank)';if(!catMap[k])catMap[k]={c:0};catMap[k].c++;});
+  const catArr=Object.entries(catMap).sort((a,b)=>b[1].c-a[1].c);
+
+  // ── Phone quality ──────────────────────────────────────
+  let phValid=0,phBad=0,phMissing=0;
+  scopedRows.forEach(r=>{if(r._mob==='valid')phValid++;else if(r._mob==='missing')phMissing++;else phBad++;});
+  const phBadPct=pct(phBad+phMissing,totalLS);
+
+  // ── Time slot pattern ──────────────────────────────────
+  const timeMap={};
+  scopedRows.forEach(r=>{if(!r._time)return;if(!timeMap[r._time])timeMap[r._time]={c:0,staff:{}};timeMap[r._time].c++;const stf=empIdx>=0?String(r[empIdx]||''):'';if(stf){timeMap[r._time].staff[stf]=(timeMap[r._time].staff[stf]||0)+1;}});
+  const timeArr=Object.entries(timeMap).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+  const peakTime=timeArr.length?timeArr.reduce((m,e)=>e[1].c>m[1].c?e:m):null;
+
+  // ── Staff performance ──────────────────────────────────
+  const staffMap={};
+  scopedRows.forEach(r=>{if(empIdx<0)return;const k=String(r[empIdx]||'').trim();if(!k)return;if(!staffMap[k])staffMap[k]={c:0,reasons:{},times:{},phBad:0,new:0,rep:0,categories:{},lastHourCnt:0};staffMap[k].c++;const rsn=reasonIdx>=0?String(r[reasonIdx]||'').trim():'';if(rsn){staffMap[k].reasons[rsn]=(staffMap[k].reasons[rsn]||0)+1;}const tm=r._time;if(tm){staffMap[k].times[tm]=(staffMap[k].times[tm]||0)+1;}if(r._mob!=='valid')staffMap[k].phBad++;const cust=String(r[custIdx]||'').toLowerCase().trim();if(isNewVal(cust))staffMap[k].new++;else if(isRepVal(cust))staffMap[k].rep++;const cat=catIdx>=0?String(r[catIdx]||'').trim():'';if(cat)staffMap[k].categories[cat]=(staffMap[k].categories[cat]||0)+1;});
+  const staffArr=Object.entries(staffMap).sort((a,b)=>b[1].c-a[1].c);
+
+  // ── Reason concentration (single dominant reason) ──────
+  const topReason=reasonArr[0];
+  const topReasonPct=topReason?pct(topReason[1].c,totalLS):0;
+
+  // ── Auto-detected RED FLAGS ────────────────────────────
+  const redFlags=[];const greenWins=[];const actions=[];
+
+  // Coverage flags
+  if(totalNB>0&&covPct<20)redFlags.push({txt:`Loss coverage is critically low: only <strong>${covPct}%</strong> of ${fi(totalNB)} non-buyers captured. Many losses going un-recorded.`,sev:'high'});
+  else if(totalNB>0&&covPct>=50)greenWins.push(`Strong loss coverage: <strong>${covPct}%</strong> of non-buyers captured (${fi(totalLS)} entries).`);
+
+  // Phone quality
+  if(phBadPct>40)redFlags.push({txt:`Phone number quality is poor: <strong>${phBadPct}%</strong> invalid/missing (${fi(phBad+phMissing)} of ${fi(totalLS)}). Customer follow-up at risk.`,sev:'high'});
+  else if(phBadPct<10&&totalLS>50)greenWins.push(`Phone data quality is excellent: only <strong>${phBadPct}%</strong> invalid.`);
+
+  // Zero-walkin stores
+  if(mode!=='store'&&zeroWalkinStores.length>0){
+    const zPct=pct(zeroWalkinStores.length,wkStoresInScope.length);
+    if(zPct>30)redFlags.push({txt:`<strong>${zeroWalkinStores.length} stores</strong> (${zPct}%) reporting <em>zero walkins</em> in selected period — pending data entry.`,sev:'high'});
+    else if(zeroWalkinStores.length>0)redFlags.push({txt:`${zeroWalkinStores.length} stores have no walkin data yet — pending sync.`,sev:'medium'});
+  }
+
+  // Top-reason concentration
+  if(topReasonPct>=50)redFlags.push({txt:`One reason dominates: "<strong>${topReason[0]}</strong>" = ${topReasonPct}% of all losses. Either real concentration or lazy data entry — investigate.`,sev:'medium'});
+  else if(topReasonPct<35&&reasonArr.length>=5)greenWins.push(`Healthy reason diversity: top reason "${topReason?topReason[0]:''}" at ${topReasonPct}%, ${reasonArr.length} distinct reasons captured.`);
+
+  // Single-staff dominance (for store mode)
+  if(mode==='store'&&staffArr.length){
+    const topStaffPct=pct(staffArr[0][1].c,totalLS);
+    if(topStaffPct>=70&&staffArr.length>=2)redFlags.push({txt:`Single staff "<strong>${staffArr[0][0]}</strong>" enters ${topStaffPct}% of losses. Validate data accuracy — possibly biased.`,sev:'medium'});
+    else if(staffArr.length>=3&&topStaffPct<50)greenWins.push(`Staff distribution healthy: ${staffArr.length} staff active, top contributor ${topStaffPct}%.`);
+  }
+
+  // Time concentration (batch entry suspicion)
+  if(peakTime&&timeArr.length>=2){
+    const peakPct=pct(peakTime[1].c,totalLS);
+    if(peakPct>=60)redFlags.push({txt:`<strong>${peakPct}%</strong> of all entries clustered at <strong>${peakTime[0]}</strong> — looks like batch entry, not real-time capture. Reliability questionable.`,sev:'medium'});
+  }
+
+  // Customer mix
+  if(totalCust>20){
+    if(repPct<5&&newPct>80)redFlags.push({txt:`Very few repeat customer entries (${repPct}%, ${fi(cc.repeat)}). Either you have no loyalty problem, or staff don't track repeat losses.`,sev:'low'});
+    else if(repPct>=20)greenWins.push(`Repeat customer loss tracked (${repPct}%, ${fi(cc.repeat)} entries) — important for retention insight.`);
+  }
+
+  // Staff with lazy data entry (only 1-2 distinct reasons)
+  const lazyStaff=staffArr.filter(([,v])=>v.c>=10&&Object.keys(v.reasons).length<=2);
+  if(lazyStaff.length>=2){
+    redFlags.push({txt:`<strong>${lazyStaff.length} staff</strong> use only 1-2 reasons across all entries — suggests templated/lazy entry: ${lazyStaff.slice(0,3).map(([k])=>k).join(', ')}${lazyStaff.length>3?', ...':''}`,sev:'medium'});
+  }
+
+  // ── Recommended ACTIONS ────────────────────────────────
+  if(zeroWalkinStores.length>0&&mode!=='store')actions.push({label:`Add walkin data for ${zeroWalkinStores.length} pending stores`,detail:zeroWalkinStores.slice(0,3).map(s=>s.outlet).join(', ')+(zeroWalkinStores.length>3?', ...':'')});
+  if(phBadPct>30)actions.push({label:`Fix ${fi(phBad+phMissing)} invalid phone numbers`,detail:`Brief field staff on the 10-digit + no-4-repeating-digits rule`});
+  if(covPct<25&&totalNB>0)actions.push({label:`Boost loss capture rate — only ${covPct}% of ${fi(totalNB)} non-buyers recorded`,detail:`Train staff to log every lost customer interaction`});
+  if(topReasonPct>=50)actions.push({label:`Investigate "${topReason[0]}" — driving ${topReasonPct}% of all losses`,detail:`Either fix root cause or check data accuracy`});
+  if(lazyStaff.length>=2)actions.push({label:`Retrain ${lazyStaff.length} staff with low reason diversity`,detail:`Encourage capturing actual customer feedback, not defaults`});
+  if(!actions.length)actions.push({label:'Maintain current standards',detail:'No critical actions detected. Continue monitoring weekly.'});
+
+  // ── Plain English INSIGHTS (the killer feature) ────────
+  const insights=[];
+
+  // Insight 1: top reason + customer type pattern
+  if(topReason){
+    const r=topReason[1];
+    const newVsRep=r.new>=r.rep*2?`mostly NEW customers (${r.new} of ${r.c})`:r.rep>=r.new*2?`mostly REPEAT customers (${r.rep} of ${r.c}) — retention issue`:`mixed customers (${r.new} new / ${r.rep} repeat)`;
+    insights.push(`💡 <strong>${topReasonPct}%</strong> of loss is due to <strong>"${topReason[0]}"</strong> — ${newVsRep}. Affects <strong>${r.stores.size}</strong> stores via <strong>${r.staff.size}</strong> staff.`);
+  }
+
+  // Insight 2: time pattern
+  if(peakTime&&timeArr.length>=3){
+    const peakStaff=Object.entries(peakTime[1].staff).sort((a,b)=>b[1]-a[1])[0];
+    insights.push(`⏰ Peak loss hour: <strong>${peakTime[0]}</strong> (${fi(peakTime[1].c)} entries, ${pct(peakTime[1].c,totalLS)}% of total).${peakStaff?` Top contributor: <strong>${peakStaff[0]}</strong> (${peakStaff[1]} entries).`:''}`);
+  }
+
+  // Insight 3: repeat customer reason
+  if(cc.repeat>=10&&reasonArr.length){
+    const repReasonMap={};
+    scopedRows.forEach(r=>{if(isRepVal(String(r[custIdx]||'').toLowerCase().trim())){const k=reasonIdx>=0?String(r[reasonIdx]||'').trim():'';if(k)repReasonMap[k]=(repReasonMap[k]||0)+1;}});
+    const topRepReason=Object.entries(repReasonMap).sort((a,b)=>b[1]-a[1])[0];
+    if(topRepReason)insights.push(`🔁 Repeat-customer loss leader: <strong>"${topRepReason[0]}"</strong> (${fi(topRepReason[1])} of ${fi(cc.repeat)} repeat losses, ${pct(topRepReason[1],cc.repeat)}%). Focus retention efforts here.`);
+  }
+
+  // Insight 4: phone quality concentration
+  if(phBad+phMissing>=10){
+    const badStaff={};
+    scopedRows.forEach(r=>{if(r._mob!=='valid'&&empIdx>=0){const k=String(r[empIdx]||'').trim();if(k)badStaff[k]=(badStaff[k]||0)+1;}});
+    const worstStaff=Object.entries(badStaff).sort((a,b)=>b[1]-a[1])[0];
+    if(worstStaff&&worstStaff[1]>=5)insights.push(`📱 <strong>${worstStaff[0]}</strong> has ${worstStaff[1]} bad phone entries — ${pct(worstStaff[1],phBad+phMissing)}% of all bad numbers in this ${mode}. Coach this staff specifically.`);
+  }
+
+  // Insight 5: store hotspot (for market/RM mode)
+  if(mode!=='store'){
+    const storeCounts={};
+    scopedRows.forEach(r=>{const sn=storeIdx>=0?String(r[storeIdx]||''):'';if(sn)storeCounts[sn]=(storeCounts[sn]||0)+1;});
+    const topStore=Object.entries(storeCounts).sort((a,b)=>b[1]-a[1])[0];
+    if(topStore&&topStore[1]>=20&&pct(topStore[1],totalLS)>=20){
+      insights.push(`🏪 Single hotspot: <strong>${topStore[0]}</strong> alone accounts for <strong>${pct(topStore[1],totalLS)}%</strong> of losses (${fi(topStore[1])} of ${fi(totalLS)}). Priority intervention.`);
+    }
+  }
+
+  // Insight 6: category-reason link
+  if(catArr.length&&reasonArr.length>=2){
+    const topCat=catArr[0];
+    const topCatReasonMap={};
+    scopedRows.forEach(r=>{if(catIdx>=0&&String(r[catIdx]||'').trim()===topCat[0]){const k=reasonIdx>=0?String(r[reasonIdx]||'').trim():'';if(k)topCatReasonMap[k]=(topCatReasonMap[k]||0)+1;}});
+    const topCatReason=Object.entries(topCatReasonMap).sort((a,b)=>b[1]-a[1])[0];
+    if(topCatReason&&topCat[1].c>=15){
+      insights.push(`🏷️ Top category <strong>"${topCat[0]}"</strong> (${fi(topCat[1].c)} losses) — main driver: <strong>"${topCatReason[0]}"</strong> (${fi(topCatReason[1])} entries, ${pct(topCatReason[1],topCat[1].c)}% of this category).`);
+    }
+  }
+
+  // ── BUILD HTML ─────────────────────────────────────────
+  const flagsRedHTML=redFlags.length?redFlags.map(rf=>`
+    <li style="padding:8px 12px;background:${rf.sev==='high'?'#fff5f5':rf.sev==='medium'?'#fff8e6':'#fafafa'};border-left:3px solid ${rf.sev==='high'?'var(--red)':rf.sev==='medium'?'var(--amber)':'var(--muted)'};border-radius:0 6px 6px 0;margin-bottom:6px;font-size:12px;line-height:1.5;">${rf.txt}</li>
+  `).join(''):'<li style="padding:8px 12px;color:var(--green);font-size:12px;">✅ No critical red flags detected — performing within healthy ranges.</li>';
+
+  const greensHTML=greenWins.length?greenWins.map(g=>`
+    <li style="padding:8px 12px;background:#e6f5ee;border-left:3px solid var(--green);border-radius:0 6px 6px 0;margin-bottom:6px;font-size:12px;line-height:1.5;">${g}</li>
+  `).join(''):'<li style="padding:8px 12px;color:var(--muted);font-size:12px;font-style:italic;">No notable wins detected yet. Build improvements over time.</li>';
+
+  const actionsHTML=actions.map((a,i)=>`
+    <li style="padding:10px 14px;background:#fff;border:1px solid #e0d4f7;border-radius:8px;margin-bottom:8px;font-size:12px;">
+      <div style="display:flex;align-items:flex-start;gap:8px;">
+        <div style="background:#6b52d4;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;">${i+1}</div>
+        <div><strong>${a.label}</strong><div style="font-size:11px;color:var(--muted);margin-top:2px;">${a.detail}</div></div>
+      </div>
+    </li>
+  `).join('');
+
+  const insightsHTML=insights.length?insights.map(ins=>`
+    <li style="padding:10px 14px;background:#fff8e6;border-left:3px solid var(--amber);border-radius:0 6px 6px 0;margin-bottom:8px;font-size:13px;line-height:1.6;">${ins}</li>
+  `).join(''):'<li style="padding:10px;color:var(--muted);font-size:12px;font-style:italic;">Not enough data for auto-insights yet.</li>';
+
+  // Top tables
+  const top5ReasonsHTML=reasonArr.slice(0,5).map(([k,v])=>({cells:[
+    `<span class="clickable" onclick="showReasonStoresModal('${k.replace(/'/g,"\\'")}','I')">${k}</span>`,
+    fi(v.c),
+    `<span class="badge ${pct(v.c,totalLS)>=30?'badge-red':pct(v.c,totalLS)>=15?'badge-amber':'badge-green'}">${pct(v.c,totalLS)}%</span>`,
+    `${fi(v.new)} / ${fi(v.rep)}`,
+    fi(v.stores.size),
+    fi(v.staff.size)
+  ]}));
+
+  const top5SubReasonsHTML=subReasonArr.slice(0,5).map(([k,v])=>({cells:[
+    subReasonIdx>=0?`<span class="clickable" onclick="showReasonStoresModal('${k.replace(/'/g,"\\'")}','J')">${k}</span>`:k,
+    fi(v.c),
+    `<span class="badge ${pct(v.c,totalLS)>=30?'badge-red':pct(v.c,totalLS)>=15?'badge-amber':'badge-green'}">${pct(v.c,totalLS)}%</span>`,
+    fi(v.stores.size)
+  ]}));
+
+  const top5CatHTML=catArr.slice(0,5).map(([k,v])=>({cells:[
+    `<span class="clickable" onclick="showCatDetailModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+    fi(v.c),
+    `<span class="badge ${pct(v.c,totalLS)>=25?'badge-red':pct(v.c,totalLS)>=12?'badge-amber':'badge-green'}">${pct(v.c,totalLS)}%</span>`
+  ]}));
+
+  const staffTblHTML=staffArr.slice(0,15).map(([k,v])=>{
+    const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+    const topT=Object.entries(v.times).sort((a,b)=>b[1]-a[1])[0];
+    const reasonDiv=Object.keys(v.reasons).length;
+    const phBadPct=pct(v.phBad,v.c);
+    const lazyFlag=v.c>=10&&reasonDiv<=2;
+    return{cells:[
+      `<span class="clickable" onclick="showStaffInsightModal('${k.replace(/'/g,"\\'")}')">${k}</span>${lazyFlag?' <span class="badge badge-red" title="Uses only 1-2 reasons">⚠️</span>':''}`,
+      fi(v.c),
+      `${fi(v.new)} / ${fi(v.rep)}`,
+      topR?topR[0]:'—',
+      reasonDiv,
+      topT?topT[0]:'—',
+      `<span class="badge ${phBadPct>50?'badge-red':phBadPct>20?'badge-amber':'badge-green'}">${phBadPct}%</span>`
+    ],_cls:lazyFlag?'audit-amber':''};
+  });
+
+  const timeTblHTML=timeArr.map(([t,v])=>({cells:[
+    t,fi(v.c),`<span class="badge ${pct(v.c,totalLS)>=25?'badge-red':pct(v.c,totalLS)>=12?'badge-amber':'badge-green'}">${pct(v.c,totalLS)}%</span>`,
+    peakTime&&t===peakTime[0]?'<span class="badge badge-red">⚡ Peak</span>':''
+  ]}));
+
+  const zeroStoresTblHTML=zeroWalkinStores.slice(0,10).map(s=>({cells:[
+    `<span class="clickable" onclick="showStoreModal('${s.outlet.replace(/'/g,"\\'")}')">${s.outlet}</span>`,
+    s.market,s.cluster,
+    '<span class="badge badge-red">🔴 No walkins yet</span>'
+  ]}));
+
+  return`
+    <!-- HEALTH SUMMARY -->
+    <div style="background:linear-gradient(135deg,#fff 0%,#fafbfd 100%);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1rem;">
+      <div style="font-size:20px;font-weight:600;margin-bottom:4px;">${mode==='market'?'📍':mode==='rm'?'👤':'🏪'} ${entity}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:1rem;">${mode==='market'?wkStoresInScope.length+' stores in this market':mode==='rm'?wkStoresInScope.length+' stores under this RM':wkStoresInScope[0]?wkStoresInScope[0].market+' · '+wkStoresInScope[0].cluster:''}</div>
+      <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;">
+        <div style="background:#f8f9fb;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;">Loss entries</div>
+          <div style="font-size:22px;font-weight:600;color:var(--red);">${fi(totalLS)}</div>
+        </div>
+        <div style="background:#f8f9fb;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;">Walkins</div>
+          <div style="font-size:22px;font-weight:600;color:var(--blue);">${fi(totalW)}</div>
+        </div>
+        <div style="background:#f8f9fb;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;">Conv%</div>
+          <div style="font-size:22px;font-weight:600;color:${convPct>=40?'var(--green)':convPct>=25?'var(--amber)':'var(--red)'};">${convPct}%</div>
+        </div>
+        <div style="background:#f8f9fb;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;">Coverage%</div>
+          <div style="font-size:22px;font-weight:600;color:${covPct>=50?'var(--green)':covPct>=25?'var(--amber)':'var(--red)'};">${covPct}%</div>
+        </div>
+        <div style="background:#f8f9fb;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;">Phone OK%</div>
+          <div style="font-size:22px;font-weight:600;color:${100-phBadPct>=80?'var(--green)':100-phBadPct>=50?'var(--amber)':'var(--red)'};">${100-phBadPct}%</div>
+        </div>
+        <div style="background:#f8f9fb;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;">New / Repeat</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text);padding-top:6px;"><span style="color:var(--green)">${newPct}%</span> / <span style="color:var(--blue)">${repPct}%</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3-COL TOP SECTION: Red flags · Green wins · Actions -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+      <div class="card" style="background:#fff5f5;border-color:#fdeaea;">
+        <div class="card-title" style="color:#a32020;">🚩 Red flags (${redFlags.length})</div>
+        <ul style="list-style:none;padding:0;margin:0;">${flagsRedHTML}</ul>
+      </div>
+      <div class="card" style="background:#e6f5ee;border-color:#c8e8d4;">
+        <div class="card-title" style="color:#1a6e40;">✅ Green wins (${greenWins.length})</div>
+        <ul style="list-style:none;padding:0;margin:0;">${greensHTML}</ul>
+      </div>
+      <div class="card" style="background:#f5f0ff;border-color:#e0d4f7;">
+        <div class="card-title" style="color:#5a3da0;">⚡ Top actions this week</div>
+        <ul style="list-style:none;padding:0;margin:0;">${actionsHTML}</ul>
+      </div>
+    </div>
+
+    <!-- AUTO-INSIGHTS -->
+    <div class="card">
+      <div class="card-title">💡 Pre-computed insights (read & act)</div>
+      <ul style="list-style:none;padding:0;margin:0;">${insightsHTML}</ul>
+    </div>
+
+    <!-- LOSS DIAGNOSTIC -->
+    <div style="background:#f0f5ff;border:1px solid #d0dffa;border-radius:10px;padding:6px 14px;margin-top:1rem;margin-bottom:.5rem;">
+      <div style="font-size:11px;font-weight:600;color:#1a3fa0;text-transform:uppercase;letter-spacing:.5px;">🔍 Loss diagnostic — why customers leave</div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-title">Top 5 reasons (col I)</div>
+        ${reasonArr.length?sortableTbl(['Reason','Count','Share%','New/Repeat','Stores','Staff'],top5ReasonsHTML,null):'<p style="color:var(--muted)">No reason data.</p>'}
+      </div>
+      <div class="card">
+        <div class="card-title">Top 5 specific reasons (col J)</div>
+        ${subReasonArr.length?sortableTbl(['Specific reason','Count','Share%','Stores'],top5SubReasonsHTML,null):'<p style="color:var(--muted)">No col J data.</p>'}
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-title">Top 5 categories</div>
+        ${catArr.length?sortableTbl(['Category','Count','Share%'],top5CatHTML,null):'<p style="color:var(--muted)">No category data.</p>'}
+      </div>
+      <div class="card">
+        <div class="card-title">⏰ Time-of-day pattern</div>
+        ${timeArr.length?sortableTbl(['Time slot','Count','Share%','Status'],timeTblHTML,null):'<p style="color:var(--muted)">No timing data.</p>'}
+      </div>
+    </div>
+
+    <!-- STAFF EFFECTIVENESS -->
+    <div style="background:#fff5f5;border:1px solid #fdeaea;border-radius:10px;padding:6px 14px;margin-top:1rem;margin-bottom:.5rem;">
+      <div style="font-size:11px;font-weight:600;color:#a32020;text-transform:uppercase;letter-spacing:.5px;">👥 Staff effectiveness — who needs coaching</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Top ${Math.min(15,staffArr.length)} staff · ⚠️ = uses only 1-2 reasons (lazy entry suspected)</div>
+      ${staffArr.length?sortableTbl(['Staff','Entries','New/Repeat','Top reason','Reason diversity','Peak time','Phone bad%'],staffTblHTML,null,r=>r._cls):'<p style="color:var(--muted)">No staff data.</p>'}
+    </div>
+
+    <!-- DATA VALIDITY -->
+    ${zeroWalkinStores.length||phBadPct>20?`
+    <div style="background:#fff8e6;border:1px solid #f0d68a;border-radius:10px;padding:6px 14px;margin-top:1rem;margin-bottom:.5rem;">
+      <div style="font-size:11px;font-weight:600;color:#a05d0a;text-transform:uppercase;letter-spacing:.5px;">🚦 Data validity check — is this data trustworthy?</div>
+    </div>
+    ${zeroWalkinStores.length?`<div class="card">
+      <div class="card-title">🔴 Stores reporting zero walkins (${zeroWalkinStores.length})</div>
+      ${sortableTbl(['Store','Market','Cluster','Status'],zeroStoresTblHTML,null)}
+      ${zeroWalkinStores.length>10?`<p style="font-size:11px;color:var(--muted);margin-top:8px;">Showing 10 of ${zeroWalkinStores.length}. Add walkin data in your Walkins sheet.</p>`:''}
+    </div>`:''}
+    `:''}
+
+    ${buildDeepDiagnostics(mode,entity,scopedRows,allRows,wkStoresInScope,f)}
+
+    <p style="font-size:11px;color:var(--muted);text-align:center;margin-top:1.5rem;padding:1rem;">📊 Report computed at ${new Date().toLocaleString()} · Showing data for current global filters</p>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 📊 DEEP DIAGNOSTICS — collapsible sub-sections (A, C, D, E, F)
+// ═══════════════════════════════════════════════════════════════════
+function buildDeepDiagnostics(mode,entity,scopedRows,allRows,wkStoresInScope,f){
+  const{storeIdx,catIdx,reasonIdx,custIdx,empIdx,phoneIdx,timingIdx,dateIdx,subReasonIdx,subCatIdx,sizeIdx,styleIdx,colorIdx,polishIdx,designIdx,nameIdx}=_LS_IDX;
+  if(!scopedRows.length)return '';
+  const totalLS=scopedRows.length;
+
+  // ════════ A. BEHAVIORAL PATTERNS ═══════════════════════════
+  // A1. Staff "template" detection — staff repeatedly using same reason+category combo
+  // A2. Time-anomaly staff — staff whose entries cluster in 1 hour (likely batch entry)
+  // A3. Phone-staff link — staff with most bad phone numbers (concentration)
+  const staffMetrics={};
+  scopedRows.forEach(r=>{
+    if(empIdx<0)return;
+    const s=String(r[empIdx]||'').trim();
+    if(!s)return;
+    if(!staffMetrics[s])staffMetrics[s]={c:0,combos:{},times:{},badPh:0,reasons:{},categories:{}};
+    staffMetrics[s].c++;
+    const cat=catIdx>=0?String(r[catIdx]||'').trim():'';
+    const rsn=reasonIdx>=0?String(r[reasonIdx]||'').trim():'';
+    if(cat&&rsn){const combo=`${rsn} × ${cat}`;staffMetrics[s].combos[combo]=(staffMetrics[s].combos[combo]||0)+1;}
+    if(rsn)staffMetrics[s].reasons[rsn]=(staffMetrics[s].reasons[rsn]||0)+1;
+    if(cat)staffMetrics[s].categories[cat]=(staffMetrics[s].categories[cat]||0)+1;
+    if(r._time)staffMetrics[s].times[r._time]=(staffMetrics[s].times[r._time]||0)+1;
+    if(r._mob!=='valid')staffMetrics[s].badPh++;
+  });
+
+  // A1: Staff with template behavior (one reason+cat combo ≥70% of entries)
+  const templateStaff=[];
+  Object.entries(staffMetrics).forEach(([s,v])=>{
+    if(v.c<10)return;
+    const topCombo=Object.entries(v.combos).sort((a,b)=>b[1]-a[1])[0];
+    if(topCombo&&pct(topCombo[1],v.c)>=70){
+      templateStaff.push({staff:s,combo:topCombo[0],comboPct:pct(topCombo[1],v.c),comboCount:topCombo[1],total:v.c});
+    }
+  });
+  templateStaff.sort((a,b)=>b.comboPct-a.comboPct);
+
+  // A2: Time-anomaly staff (one time slot ≥70% of their entries)
+  const timeAnomalyStaff=[];
+  Object.entries(staffMetrics).forEach(([s,v])=>{
+    if(v.c<10)return;
+    const topTime=Object.entries(v.times).sort((a,b)=>b[1]-a[1])[0];
+    if(topTime&&pct(topTime[1],v.c)>=70){
+      timeAnomalyStaff.push({staff:s,time:topTime[0],timeCount:topTime[1],total:v.c,pct:pct(topTime[1],v.c)});
+    }
+  });
+  timeAnomalyStaff.sort((a,b)=>b.pct-a.pct);
+
+  // A3: Phone-staff link — total bad phones in this scope
+  const totalBadPh=scopedRows.filter(r=>r._mob!=='valid').length;
+  const phoneStaffArr=Object.entries(staffMetrics).filter(([,v])=>v.badPh>0).sort((a,b)=>b[1].badPh-a[1].badPh).slice(0,10);
+
+  const aRedFlagCount=templateStaff.length+timeAnomalyStaff.length;
+
+  const aHtml=`
+    <div class="two-col">
+      <div>
+        <div class="section-lbl">🎭 Staff template behavior (same reason+category ≥70% of entries)</div>
+        ${templateStaff.length?sortableTbl(['Staff','Top combo','Occurrences','Total entries','Concentration%'],
+          templateStaff.slice(0,10).map(t=>({cells:[
+            `<span class="clickable" onclick="showStaffInsightModal('${t.staff.replace(/'/g,"\\'")}')">${t.staff}</span>`,
+            `<span style="font-size:11px">${t.combo}</span>`,
+            fi(t.comboCount),fi(t.total),
+            `<span class="badge badge-red">${t.comboPct}%</span>`
+          ]})),null):'<p style="color:var(--green);font-size:12px;">✅ No staff with template-only entries detected.</p>'}
+        <p style="font-size:11px;color:var(--muted);margin-top:6px;">Staff using one reason+category combo repeatedly may be lazily templating instead of capturing real customer feedback.</p>
+      </div>
+      <div>
+        <div class="section-lbl">⏰ Time-anomaly staff (one time slot dominates ≥70%)</div>
+        ${timeAnomalyStaff.length?sortableTbl(['Staff','Peak slot','Entries in slot','Total entries','Time concentration%'],
+          timeAnomalyStaff.slice(0,10).map(t=>({cells:[
+            `<span class="clickable" onclick="showStaffInsightModal('${t.staff.replace(/'/g,"\\'")}')">${t.staff}</span>`,t.time,fi(t.timeCount),fi(t.total),
+            `<span class="badge badge-red">${t.pct}%</span>`
+          ]})),null):'<p style="color:var(--green);font-size:12px;">✅ No staff with abnormal time concentration.</p>'}
+        <p style="font-size:11px;color:var(--muted);margin-top:6px;">If 70%+ of a staff's entries fall in one slot, they're likely doing batch entry — data not real-time, less reliable.</p>
+      </div>
+    </div>
+    <div class="section-lbl" style="margin-top:1rem;">📱 Phone-quality concentration by staff (who creates the most bad numbers)</div>
+    ${phoneStaffArr.length?sortableTbl(['Staff','Total entries','Bad phone count','Bad%','Share of all bad'],
+      phoneStaffArr.map(([s,v])=>({cells:[
+        `<span class="clickable" onclick="showStaffInsightModal('${s.replace(/'/g,"\\'")}')">${s}</span>`,fi(v.c),fi(v.badPh),
+        `<span class="badge ${pct(v.badPh,v.c)>50?'badge-red':pct(v.badPh,v.c)>20?'badge-amber':'badge-green'}">${pct(v.badPh,v.c)}%</span>`,
+        `<span class="badge ${pct(v.badPh,totalBadPh||1)>30?'badge-red':pct(v.badPh,totalBadPh||1)>15?'badge-amber':'badge-green'}">${pct(v.badPh,totalBadPh||1)}%</span>`
+      ]})),null):'<p style="color:var(--muted);font-size:12px;">No phone-quality issues detected.</p>'}
+  `;
+
+  // ════════ C. CUSTOMER-CENTRIC ══════════════════════════════
+  // C1. Chronic non-buyers — same phone appearing >=2 times
+  // C2. New customer vs repeat customer reason mix (already in main report — add deeper)
+  // C3. High-intent customer pattern — repeat customers with price-related reasons
+
+  // C1: Same phone appearing multiple times
+  const phoneOccurrences={};
+  scopedRows.forEach(r=>{
+    if(phoneIdx<0)return;
+    if(r._mob!=='valid')return;
+    const ph=String(r[phoneIdx]||'').replace(/\D/g,'');
+    if(ph.length!==10)return;
+    if(!phoneOccurrences[ph])phoneOccurrences[ph]={c:0,reasons:new Set(),categories:new Set(),stores:new Set(),name:''};
+    phoneOccurrences[ph].c++;
+    if(reasonIdx>=0)phoneOccurrences[ph].reasons.add(String(r[reasonIdx]||''));
+    if(catIdx>=0)phoneOccurrences[ph].categories.add(String(r[catIdx]||''));
+    if(storeIdx>=0)phoneOccurrences[ph].stores.add(String(r[storeIdx]||''));
+    if(nameIdx>=0&&!phoneOccurrences[ph].name)phoneOccurrences[ph].name=String(r[nameIdx]||'');
+  });
+  const chronicNonBuyers=Object.entries(phoneOccurrences).filter(([,v])=>v.c>=2).sort((a,b)=>b[1].c-a[1].c);
+
+  // C3: High-intent repeat customers with price-related reasons
+  const PRICE_RELATED=['price concern','discount expectation not met','found cheaper online','perceived poor value for money','price mismatch with website','found substitute product at lower price'];
+  let highIntentRepeat=0;
+  scopedRows.forEach(r=>{
+    if(custIdx<0||reasonIdx<0)return;
+    const cust=String(r[custIdx]||'').toLowerCase().trim();
+    if(!isRepVal(cust))return;
+    const rsn=String(r[reasonIdx]||'').toLowerCase().trim();
+    if(PRICE_RELATED.some(p=>rsn===p||rsn.includes(p)||p.includes(rsn)))highIntentRepeat++;
+  });
+
+  // C2 deep: top categories for new vs repeat
+  const newCats={},repCats={};
+  scopedRows.forEach(r=>{
+    if(custIdx<0||catIdx<0)return;
+    const cust=String(r[custIdx]||'').toLowerCase().trim();
+    const cat=String(r[catIdx]||'').trim();
+    if(!cat)return;
+    if(isNewVal(cust))newCats[cat]=(newCats[cat]||0)+1;
+    else if(isRepVal(cust))repCats[cat]=(repCats[cat]||0)+1;
+  });
+  const topNewCat=Object.entries(newCats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topRepCat=Object.entries(repCats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  const cHtml=`
+    <div class="section-lbl">🔁 Chronic non-buyers (same phone, multiple losses)</div>
+    ${chronicNonBuyers.length?`<p style="font-size:12px;margin-bottom:8px;"><strong>${fi(chronicNonBuyers.length)} customers</strong> appeared in loss data ${chronicNonBuyers.length>1?'multiple times':'twice'}. These are warm but unconverted — high-priority follow-up targets.</p>
+    ${sortableTbl(['Phone','Customer name','Visits','Stores','Distinct reasons','Distinct categories'],
+      chronicNonBuyers.slice(0,15).map(([ph,v])=>({cells:[
+        ph,v.name||'—',
+        `<span class="badge ${v.c>=4?'badge-red':v.c>=3?'badge-amber':'badge-green'}">${v.c}×</span>`,
+        fi(v.stores.size),fi(v.reasons.size),fi(v.categories.size)
+      ]})),null)}
+    ${chronicNonBuyers.length>15?`<p style="font-size:11px;color:var(--muted);margin-top:6px;">Showing top 15 of ${chronicNonBuyers.length}.</p>`:''}`:
+    '<p style="color:var(--green);font-size:12px;">✅ No chronic non-buyers detected (each phone appears only once).</p>'}
+
+    <div style="background:#fff5f5;border-left:3px solid var(--red);padding:10px 14px;border-radius:0 6px 6px 0;margin-top:1rem;font-size:12px;">
+      💔 <strong>High-intent repeat customers lost on PRICE:</strong> ${fi(highIntentRepeat)} entries where REPEAT customers walked out for price-related reasons. These are your most retention-vulnerable losses — they trust you enough to come back but find prices unconvincing.
+    </div>
+
+    <div class="two-col" style="margin-top:1rem;">
+      <div>
+        <div class="section-lbl">🆕 What new customers come for (then leave)</div>
+        ${topNewCat.length?sortableTbl(['Category','New customer losses','Share of new losses'],
+          topNewCat.map(([k,v])=>({cells:[k,fi(v),`<span class="badge ${pct(v,Object.values(newCats).reduce((a,b)=>a+b,0))>=30?'badge-red':pct(v,Object.values(newCats).reduce((a,b)=>a+b,0))>=15?'badge-amber':'badge-green'}">${pct(v,Object.values(newCats).reduce((a,b)=>a+b,0))}%</span>`]})),null):'<p style="color:var(--muted);font-size:12px;">No new customer data.</p>'}
+      </div>
+      <div>
+        <div class="section-lbl">🔁 What repeat customers come back for (and leave)</div>
+        ${topRepCat.length?sortableTbl(['Category','Repeat customer losses','Share of repeat losses'],
+          topRepCat.map(([k,v])=>({cells:[k,fi(v),`<span class="badge ${pct(v,Object.values(repCats).reduce((a,b)=>a+b,0))>=30?'badge-red':pct(v,Object.values(repCats).reduce((a,b)=>a+b,0))>=15?'badge-amber':'badge-green'}">${pct(v,Object.values(repCats).reduce((a,b)=>a+b,0))}%</span>`]})),null):'<p style="color:var(--muted);font-size:12px;">No repeat customer data.</p>'}
+      </div>
+    </div>
+  `;
+
+  // ════════ D. PRODUCT/SKU PATTERNS ══════════════════════════
+  // D1. Repeated product losses — same sub-category+size+style appearing N times
+  // D2. Hot attributes — colors/polishes/styles with high loss
+
+  const productCombos={};
+  scopedRows.forEach(r=>{
+    const parts=[];
+    if(catIdx>=0)parts.push(String(r[catIdx]||''));
+    if(subCatIdx>=0)parts.push(String(r[subCatIdx]||''));
+    if(sizeIdx>=0)parts.push(String(r[sizeIdx]||''));
+    if(styleIdx>=0)parts.push(String(r[styleIdx]||''));
+    const combo=parts.filter(Boolean).join(' · ');
+    if(!combo)return;
+    if(!productCombos[combo])productCombos[combo]={c:0,reasons:{},stores:new Set()};
+    productCombos[combo].c++;
+    const rsn=reasonIdx>=0?String(r[reasonIdx]||''):'';
+    if(rsn)productCombos[combo].reasons[rsn]=(productCombos[combo].reasons[rsn]||0)+1;
+    const sn=storeIdx>=0?String(r[storeIdx]||''):'';
+    if(sn)productCombos[combo].stores.add(sn);
+  });
+  const repeatProducts=Object.entries(productCombos).filter(([,v])=>v.c>=3).sort((a,b)=>b[1].c-a[1].c).slice(0,15);
+
+  // D2: hot attributes
+  const attrCount=(idx)=>{
+    if(idx<0)return [];
+    const map={};
+    scopedRows.forEach(r=>{const v=String(r[idx]||'').trim();if(v)map[v]=(map[v]||0)+1;});
+    return Object.entries(map).filter(([k,v])=>v>=3).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  };
+  const hotColors=attrCount(colorIdx);
+  const hotStyles=attrCount(styleIdx);
+  const hotPolishes=attrCount(polishIdx);
+  const hotSizes=attrCount(sizeIdx);
+
+  const dHtml=`
+    <div class="section-lbl">📦 Repeatedly lost product combinations (3+ occurrences)</div>
+    ${repeatProducts.length?sortableTbl(['Product (cat · sub · size · style)','Loss count','Stores affected','Top reason'],
+      repeatProducts.map(([k,v])=>{
+        const topR=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
+        return{cells:[
+          `<span style="font-size:11px">${k}</span>`,
+          `<span class="badge ${v.c>=10?'badge-red':v.c>=5?'badge-amber':'badge-green'}">${v.c}×</span>`,
+          fi(v.stores.size),
+          topR?`${topR[0]} (${topR[1]})`:'—'
+        ]};
+      }),null):'<p style="color:var(--muted);font-size:12px;">No product combo repeats 3+ times.</p>'}
+    <p style="font-size:11px;color:var(--muted);margin-top:6px;">A combination losing 3+ customers may indicate stock issue, pricing issue, or quality issue with that specific product.</p>
+
+    <div class="two-col" style="margin-top:1rem;">
+      <div>
+        <div class="section-lbl">🎨 High-loss colors${hotColors.length?'':' (no data)'}</div>
+        ${hotColors.length?sortableTbl(['Color','Loss count'],hotColors.map(([k,v])=>({cells:[k,fi(v)]})),null):''}
+      </div>
+      <div>
+        <div class="section-lbl">✨ High-loss polishes${hotPolishes.length?'':' (no data)'}</div>
+        ${hotPolishes.length?sortableTbl(['Polish','Loss count'],hotPolishes.map(([k,v])=>({cells:[k,fi(v)]})),null):''}
+      </div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="section-lbl">💎 High-loss styles${hotStyles.length?'':' (no data)'}</div>
+        ${hotStyles.length?sortableTbl(['Style','Loss count'],hotStyles.map(([k,v])=>({cells:[k,fi(v)]})),null):''}
+      </div>
+      <div>
+        <div class="section-lbl">📏 High-loss sizes${hotSizes.length?'':' (no data)'}</div>
+        ${hotSizes.length?sortableTbl(['Size','Loss count'],hotSizes.map(([k,v])=>({cells:[k,fi(v)]})),null):''}
+      </div>
+    </div>
+  `;
+
+  // ════════ E. OPERATIONAL DRIFT ════════════════════════════
+  // E1. Coverage drift — last 7d vs prior 7d
+  // E2. Stale stores — zero walkins for 5+ days
+  // E3. Reason mix change — top reason shifting WoW
+
+  const allDks=[...new Set(scopedRows.map(r=>r._dk).filter(Boolean))].sort();
+  let coverageDriftHTML='<p style="color:var(--muted);font-size:12px;">Need at least 14 days of data for drift analysis.</p>';
+  if(allDks.length>=14){
+    const last7=new Set(allDks.slice(-7));
+    const prev7=new Set(allDks.slice(-14,-7));
+    let prevLS=0,lastLS=0,prevNB=0,lastNB=0;
+    scopedRows.forEach(r=>{if(last7.has(r._dk))lastLS++;else if(prev7.has(r._dk))prevLS++;});
+    wkStoresInScope.forEach(s=>{s.days.forEach(d=>{const nb=d.w-d.b;if(last7.has(d.dk))lastNB+=nb;else if(prev7.has(d.dk))prevNB+=nb;});});
+    const prevCov=pct(prevLS,prevNB);const lastCov=pct(lastLS,lastNB);
+    const delta=lastCov-prevCov;
+    const arrow=delta>=2?'<span style="color:var(--green)">▲</span>':delta<=-2?'<span style="color:var(--red)">▼</span>':'<span style="color:var(--muted)">→</span>';
+    coverageDriftHTML=`
+      <div class="metrics" style="grid-template-columns:repeat(3,minmax(0,1fr));">
+        <div class="metric"><div class="lbl">Prior 7 days</div><div class="val">${prevCov}%</div><div class="sub">${fi(prevLS)} loss / ${fi(prevNB)} non-buyers</div></div>
+        <div class="metric"><div class="lbl">Last 7 days</div><div class="val">${lastCov}%</div><div class="sub">${fi(lastLS)} loss / ${fi(lastNB)} non-buyers</div></div>
+        <div class="metric ${delta>=2?'green':delta<=-2?'red':''}"><div class="lbl">Coverage drift</div><div class="val">${arrow} ${delta>0?'+':''}${delta}pp</div><div class="sub">${Math.abs(delta)<2?'stable':delta>0?'improving':'declining'}</div></div>
+      </div>
+    `;
+  }
+
+  // E2: stale stores — zero walkin entries for last 5+ days
+  const today=allDks.length?allDks[allDks.length-1]:null;
+  const staleStores=[];
+  wkStoresInScope.forEach(s=>{
+    const recentDays=daysInRange(s.days,f).filter(d=>d.w>0);
+    if(!recentDays.length){staleStores.push({store:s.outlet,market:s.market,rm:s.rm,lastEntry:'never in period',daysSilent:'∞'});return;}
+    const lastEntry=recentDays.reduce((a,b)=>a.dk>b.dk?a:b);
+    if(today){
+      const d1=new Date(lastEntry.dk+'T00:00:00');const d2=new Date(today+'T00:00:00');
+      const days=Math.round((d2-d1)/86400000);
+      if(days>=5)staleStores.push({store:s.outlet,market:s.market,rm:s.rm,lastEntry:fmtDK(lastEntry.dk),daysSilent:days});
+    }
+  });
+  staleStores.sort((a,b)=>(b.daysSilent==='∞'?9999:b.daysSilent)-(a.daysSilent==='∞'?9999:a.daysSilent));
+
+  // E3: Reason mix change
+  let reasonDriftHTML='<p style="color:var(--muted);font-size:12px;">Need at least 14 days for reason-drift comparison.</p>';
+  if(allDks.length>=14&&reasonIdx>=0){
+    const last7=new Set(allDks.slice(-7));const prev7=new Set(allDks.slice(-14,-7));
+    const prevMix={},lastMix={};
+    let prevT=0,lastT=0;
+    scopedRows.forEach(r=>{const k=String(r[reasonIdx]||'').trim()||'(blank)';if(last7.has(r._dk)){lastMix[k]=(lastMix[k]||0)+1;lastT++;}else if(prev7.has(r._dk)){prevMix[k]=(prevMix[k]||0)+1;prevT++;}});
+    const allReasons=new Set([...Object.keys(prevMix),...Object.keys(lastMix)]);
+    const drifts=[...allReasons].map(rsn=>{
+      const p=pct(prevMix[rsn]||0,prevT);const l=pct(lastMix[rsn]||0,lastT);
+      return{reason:rsn,prev:prevMix[rsn]||0,last:lastMix[rsn]||0,prevPct:p,lastPct:l,delta:l-p};
+    }).filter(d=>Math.abs(d.delta)>=3||d.prev>=5||d.last>=5).sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta)).slice(0,10);
+    if(drifts.length){
+      reasonDriftHTML=sortableTbl(['Reason','Prior 7d','Last 7d','Prior%','Last%','Δ pp','Trend'],
+        drifts.map(d=>{
+          const arrow=d.delta>=3?'<span style="color:var(--red)">▲</span>':d.delta<=-3?'<span style="color:var(--green)">▼</span>':'→';
+          const trend=d.delta>=5?'<span class="badge badge-red">Rising fast</span>':d.delta>=3?'<span class="badge badge-amber">Rising</span>':d.delta<=-5?'<span class="badge badge-green">Falling fast</span>':d.delta<=-3?'<span class="badge badge-green">Falling</span>':'<span class="badge badge-green">Stable</span>';
+          return{cells:[d.reason,fi(d.prev),fi(d.last),`${d.prevPct}%`,`${d.lastPct}%`,`${arrow} ${d.delta>0?'+':''}${d.delta}pp`,trend]};
+        }),null);
+    }else{
+      reasonDriftHTML='<p style="color:var(--green);font-size:12px;">✅ No notable reason-mix shifts week over week.</p>';
+    }
+  }
+
+  const eHtml=`
+    <div class="section-lbl">📉 Coverage drift (last 7 days vs prior 7 days)</div>
+    ${coverageDriftHTML}
+
+    <div class="section-lbl" style="margin-top:1rem;">⌛ Stale stores (5+ days no walkin entry)</div>
+    ${staleStores.length?sortableTbl(['Store','Market','RM','Last walkin entry','Days silent'],
+      staleStores.slice(0,15).map(s=>({cells:[
+        `<span class="clickable" onclick="showStoreModal('${s.store.replace(/'/g,"\\'")}')">${s.store}</span>`,
+        s.market,s.rm,s.lastEntry,
+        `<span class="badge ${s.daysSilent==='∞'||s.daysSilent>=10?'badge-red':s.daysSilent>=7?'badge-amber':'badge-green'}">${s.daysSilent} day${s.daysSilent===1?'':'s'}</span>`
+      ]})),null):'<p style="color:var(--green);font-size:12px;">✅ All stores have walkin entries within the last 4 days.</p>'}
+    ${staleStores.length>15?`<p style="font-size:11px;color:var(--muted);margin-top:6px;">Showing 15 of ${staleStores.length}.</p>`:''}
+
+    <div class="section-lbl" style="margin-top:1rem;">🔀 Reason mix shift (which reasons trended up/down)</div>
+    ${reasonDriftHTML}
+  `;
+
+  // ════════ F. SHORT-TERM FORECAST ═══════════════════════════
+  // F1. Project month-end loss based on current pace
+  // F2. Project coverage trajectory
+
+  let forecastHTML='<p style="color:var(--muted);font-size:12px;">Need at least 7 days of data for forecasting.</p>';
+  if(allDks.length>=7){
+    const last7=allDks.slice(-7);
+    const last7Set=new Set(last7);
+    let last7LS=0,last7NB=0,last7W=0,last7B=0;
+    scopedRows.forEach(r=>{if(last7Set.has(r._dk))last7LS++;});
+    wkStoresInScope.forEach(s=>{s.days.forEach(d=>{if(last7Set.has(d.dk)){last7NB+=(d.w-d.b);last7W+=d.w;last7B+=d.b;}});});
+    const dailyLS=last7LS/7;
+    const dailyW=last7W/7;
+    const dailyB=last7B/7;
+    const dailyNB=last7NB/7;
+
+    // Project to month end (assuming 30-day month)
+    const today=new Date();
+    const daysInMonth=new Date(today.getFullYear(),today.getMonth()+1,0).getDate();
+    const dayOfMonth=today.getDate();
+    const daysRemaining=daysInMonth-dayOfMonth;
+    const projectedLS=Math.round(dailyLS*daysInMonth);
+    const projectedW=Math.round(dailyW*daysInMonth);
+    const projectedB=Math.round(dailyB*daysInMonth);
+    const projectedNB=Math.round(dailyNB*daysInMonth);
+    const projectedCov=pct(projectedLS,projectedNB);
+
+    // Next 7 days projection
+    const next7LS=Math.round(dailyLS*7);
+    const next7W=Math.round(dailyW*7);
+
+    forecastHTML=`
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px;"><strong>Caveat:</strong> Forecasts assume the last 7 days' pace continues. Use as a directional indicator, not a guarantee.</p>
+
+      <div style="background:#f0f5ff;border:1px solid #d0dffa;border-radius:8px;padding:14px;margin-bottom:1rem;">
+        <div style="font-size:13px;font-weight:600;color:#1a3fa0;margin-bottom:8px;">📅 Next 7 days (at current pace)</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+          <div style="background:#fff;border-radius:6px;padding:8px;text-align:center;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Projected loss</div>
+            <div style="font-size:20px;font-weight:600;color:var(--red);">${fi(next7LS)}</div>
+          </div>
+          <div style="background:#fff;border-radius:6px;padding:8px;text-align:center;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Projected walkins</div>
+            <div style="font-size:20px;font-weight:600;color:var(--blue);">${fi(next7W)}</div>
+          </div>
+          <div style="background:#fff;border-radius:6px;padding:8px;text-align:center;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Daily avg loss</div>
+            <div style="font-size:20px;font-weight:600;">${dailyLS.toFixed(1)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:#fff8e6;border:1px solid #f0d68a;border-radius:8px;padding:14px;">
+        <div style="font-size:13px;font-weight:600;color:#a05d0a;margin-bottom:8px;">📅 Month-end projection (${daysRemaining} days remaining)</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+          <div style="background:#fff;border-radius:6px;padding:8px;text-align:center;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Total loss (month)</div>
+            <div style="font-size:20px;font-weight:600;color:var(--red);">${fi(projectedLS)}</div>
+          </div>
+          <div style="background:#fff;border-radius:6px;padding:8px;text-align:center;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Total walkins</div>
+            <div style="font-size:20px;font-weight:600;color:var(--blue);">${fi(projectedW)}</div>
+          </div>
+          <div style="background:#fff;border-radius:6px;padding:8px;text-align:center;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Total bills</div>
+            <div style="font-size:20px;font-weight:600;color:var(--green);">${fi(projectedB)}</div>
+          </div>
+          <div style="background:#fff;border-radius:6px;padding:8px;text-align:center;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Coverage%</div>
+            <div style="font-size:20px;font-weight:600;color:${projectedCov>=50?'var(--green)':projectedCov>=25?'var(--amber)':'var(--red)'};">${projectedCov}%</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ════════ BUILD COLLAPSIBLE SECTIONS ══════════════════════
+  const detailsBlock=(emoji,title,subtitle,html,defaultOpen)=>`
+    <details ${defaultOpen?'open':''} style="background:#fff;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:.75rem;">
+      <summary style="cursor:pointer;padding:14px 18px;font-weight:600;font-size:14px;list-style:none;display:flex;justify-content:space-between;align-items:center;">
+        <span>${emoji} ${title}</span>
+        <span style="font-size:11px;color:var(--muted);font-weight:400;">${subtitle}</span>
+      </summary>
+      <div style="padding:0 18px 18px 18px;border-top:1px solid var(--border);">
+        ${html}
+      </div>
+    </details>
+  `;
+
+  return`
+    <div style="background:#fafbfd;border:1px solid var(--border);border-radius:10px;padding:6px 14px;margin-top:1.5rem;margin-bottom:.5rem;">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">📊 Deep diagnostics — click any section to expand</div>
+    </div>
+    ${detailsBlock('🎭','Behavioral patterns',`${aRedFlagCount} flagged staff · phone-quality concentration`,aHtml,false)}
+    ${detailsBlock('👤','Customer intelligence',`${chronicNonBuyers.length} chronic non-buyers · ${fi(highIntentRepeat)} high-intent lost`,cHtml,false)}
+    ${detailsBlock('📦','Product / SKU patterns',`${repeatProducts.length} repeating product losses · hot attributes`,dHtml,false)}
+    ${detailsBlock('📉','Operational drift',`${staleStores.length} stale stores · reason mix shifts · coverage trend`,eHtml,false)}
+    ${detailsBlock('🔮','Forecast (next 7 days + month-end)',`directional projection based on last 7 days pace`,forecastHTML,false)}
+  `;
+}
 
 // ── LOSS DETAIL TAB ───────────────────────────────────────
 function renderLossDetail(){
@@ -1657,8 +3258,9 @@ window.showCatMarketModal=function(market){
 window.showCatDetailModal=function(category){
   const f=getFilters();
   const{catIdx,reasonIdx,sizeIdx,styleIdx,storeIdx,subCatIdx,mktIdx}=_LS_IDX;
-  const rows=filterLS(f).filter(r=>catIdx>=0&&String(r[catIdx]||'')=== category);
+  const rows=applyInsScope(filterLS(f)).filter(r=>catIdx>=0&&String(r[catIdx]||'')=== category);
   const total=rows.length;
+  const scopeLbl=insScopeLabel();
 
   function grpLocal(getKey){
     const m={};
@@ -1674,7 +3276,8 @@ window.showCatDetailModal=function(category){
 
   const prAlert=sh=>sh>=30?'<span class="badge badge-red">High</span>':sh>=15?'<span class="badge badge-amber">Medium</span>':'<span class="badge badge-green">Low</span>';
 
-  openModal(`Category: ${category}`,`${fi(total)} loss entries across ${mktRows.length} markets`,`
+  openModal(`Category: ${category}${scopeLbl?' · '+scopeLbl:''}`,`${fi(total)} loss entries across ${mktRows.length} markets${scopeLbl?' · 🔒 scoped':''}`,`
+    ${scopeLbl?`<div style="background:#fff8e6;border:1px solid #f0d68a;border-radius:8px;padding:8px 12px;margin-bottom:.75rem;font-size:11px;color:#a05d0a;">🔒 <strong>Scoped to ${scopeLbl}</strong> — showing only this entity's data</div>`:''}
     <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
       <div class="metric amber"><div class="lbl">Total loss</div><div class="val">${fi(total)}</div></div>
       <div class="metric"><div class="lbl">Markets</div><div class="val">${mktRows.length}</div></div>
@@ -1937,11 +3540,17 @@ window.showReasonStoresModal=function(reasonValue,sourceCol){
   sourceCol=sourceCol||'I';
   const idx=_reasonColIdx(sourceCol);
   if(idx<0){alert('Reason column not found');return;}
+  // If we're scoped to a specific store, skip the "stores list" step and go straight to category view
+  const sc=window._insScope;
+  if(sc&&sc.mode==='store'&&sc.entity){
+    return showReasonStoreCatModal(reasonValue,sourceCol,sc.entity);
+  }
   const f=getFilters();
-  const allFiltered=filterLS(f);
+  const allFiltered=applyInsScope(filterLS(f));
   const matchRows=allFiltered.filter(r=>String(r[idx]||'').trim()===reasonValue);
   const total=matchRows.length;
   const{storeIdx,catIdx,empIdx}=_LS_IDX;
+  const scopeLbl=insScopeLabel();
 
   // Group by store
   const storeMap={};
@@ -1972,8 +3581,9 @@ window.showReasonStoresModal=function(reasonValue,sourceCol){
 
   openModal(
     `🎯 ${_reasonLabel(sourceCol)}: "${reasonValue}"`,
-    `Step 1 of 3 · ${fi(total)} entries · ${storeArr.length} stores · ${mktSet.size} markets · ${rmSet.size} RMs`,
-    `<div style="background:#f5f0ff;border:1px solid #e0d4f7;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:12px;color:#5a3da0;">
+    `Step 1 of 3 · ${fi(total)} entries · ${storeArr.length} stores · ${mktSet.size} markets · ${rmSet.size} RMs${scopeLbl?' · 🔒 '+scopeLbl:''}`,
+    `${scopeLbl?`<div style="background:#fff8e6;border:1px solid #f0d68a;border-radius:8px;padding:8px 12px;margin-bottom:.75rem;font-size:11px;color:#a05d0a;">🔒 <strong>Scoped to ${scopeLbl}</strong> — showing only this entity's data</div>`:''}
+    <div style="background:#f5f0ff;border:1px solid #e0d4f7;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:12px;color:#5a3da0;">
       <strong>📍 Drill path:</strong> Reason → <strong>Stores</strong> → Category → Other Reasons & Staff &nbsp;·&nbsp; click a store to continue
     </div>
     <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
@@ -2181,6 +3791,118 @@ window.showReasonStoreCatDetailModal=function(reasonValue,sourceCol,store,catego
 // ── STAFF DRILLDOWN ─────────────────────────────────────
 // Click a staff name in Step 3 → shows that staff's specific loss entries
 // (filtered by store + category + drilled-in reason). Includes ← Back button.
+// ── STAFF INSIGHT MODAL ──────────────────────────────────
+// Used from Insights tab — shows that staff's entries within the current entity scope
+window.showStaffInsightModal=function(staff){
+  const{storeIdx,catIdx,reasonIdx,subReasonIdx,custIdx,empIdx,phoneIdx,timingIdx,dateIdx,nameIdx,subCatIdx,sizeIdx,styleIdx}=_LS_IDX;
+  if(empIdx<0){alert('Employee column not found');return;}
+  const f=getFilters();
+  const scopedRows=applyInsScope(filterLS(f)).filter(r=>String(r[empIdx]||'').trim()===staff);
+  const total=scopedRows.length;
+  const scopeLbl=insScopeLabel();
+  if(!total){
+    openModal(`👤 ${staff}`,`No entries in scope`,`<p style="padding:1rem;color:var(--muted);">No loss entries found for this staff within ${scopeLbl||'current filters'}.</p>`);
+    return;
+  }
+
+  // Aggregations
+  const reasonMap={},subReasonMap={},catMap={},timeMap={},custMap={},storeMap={};
+  let phValid=0,phBad=0,phMiss=0;
+  let newC=0,repC=0;
+  scopedRows.forEach(r=>{
+    if(reasonIdx>=0){const k=String(r[reasonIdx]||'').trim()||'(blank)';reasonMap[k]=(reasonMap[k]||0)+1;}
+    if(subReasonIdx>=0){const k=String(r[subReasonIdx]||'').trim()||'(blank)';subReasonMap[k]=(subReasonMap[k]||0)+1;}
+    if(catIdx>=0){const k=String(r[catIdx]||'').trim()||'(blank)';catMap[k]=(catMap[k]||0)+1;}
+    if(r._time){timeMap[r._time]=(timeMap[r._time]||0)+1;}
+    if(custIdx>=0){const c=String(r[custIdx]||'').toLowerCase().trim();if(isNewVal(c))newC++;else if(isRepVal(c))repC++;}
+    if(storeIdx>=0){const k=String(r[storeIdx]||'').trim()||'Unknown';storeMap[k]=(storeMap[k]||0)+1;}
+    if(r._mob==='valid')phValid++;else if(r._mob==='missing')phMiss++;else phBad++;
+  });
+  const reasonArr=Object.entries(reasonMap).sort((a,b)=>b[1]-a[1]);
+  const subReasonArr=Object.entries(subReasonMap).sort((a,b)=>b[1]-a[1]);
+  const catArr=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+  const timeArr=Object.entries(timeMap).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+  const storeArr=Object.entries(storeMap).sort((a,b)=>b[1]-a[1]);
+  const peakTime=timeArr.length?timeArr.reduce((m,e)=>e[1]>m[1]?e:m):null;
+  const reasonDiversity=reasonArr.length;
+  const phBadPct=pct(phBad+phMiss,total);
+
+  // Detail rows
+  const detailRows=scopedRows.slice(0,200).map(r=>{
+    const d=fmtDK(r._dk||'');
+    const tm=timingIdx>=0?String(r[timingIdx]||''):'';
+    const cust=nameIdx>=0?String(r[nameIdx]||''):'';
+    const ph=phoneIdx>=0?String(r[phoneIdx]||''):'';
+    const phBadge=r._mob==='valid'?'<span class="badge badge-green">✓</span>':'<span class="badge badge-red">⚠</span>';
+    const ctype=custIdx>=0?String(r[custIdx]||''):'';
+    const cat=catIdx>=0?String(r[catIdx]||''):'';
+    const rsn=reasonIdx>=0?String(r[reasonIdx]||''):'';
+    const sn=storeIdx>=0?String(r[storeIdx]||''):'';
+    return{cells:[d||'—',tm||'—',ctype||'—',cust||'—',`${ph||'—'} ${phBadge}`,sn,cat||'—',rsn||'—']};
+  });
+
+  // Quality flags for this staff
+  const flags=[];
+  if(reasonDiversity<=2&&total>=10)flags.push(`⚠️ <strong>Lazy entry suspected:</strong> uses only ${reasonDiversity} distinct reason${reasonDiversity===1?'':'s'} across ${fi(total)} entries`);
+  if(phBadPct>40)flags.push(`📱 <strong>Phone quality concern:</strong> ${phBadPct}% of phone numbers are invalid (${fi(phBad+phMiss)} of ${fi(total)})`);
+  if(peakTime&&pct(peakTime[1],total)>=70)flags.push(`⏰ <strong>Time anomaly:</strong> ${pct(peakTime[1],total)}% of entries clustered in ${peakTime[0]} — possible batch entry`);
+  if(reasonArr.length){
+    const topR=reasonArr[0];
+    if(pct(topR[1],total)>=70)flags.push(`🎯 <strong>Reason monopoly:</strong> "${topR[0]}" = ${pct(topR[1],total)}% of all entries`);
+  }
+
+  openModal(
+    `👤 ${staff}${scopeLbl?' · '+scopeLbl:''}`,
+    `${fi(total)} loss entries · ${reasonArr.length} reasons · ${catArr.length} categories · ${storeArr.length} stores${scopeLbl?' · 🔒 scoped':''}`,
+    `${scopeLbl?`<div style="background:#fff8e6;border:1px solid #f0d68a;border-radius:8px;padding:8px 12px;margin-bottom:.75rem;font-size:11px;color:#a05d0a;">🔒 <strong>Scoped to ${scopeLbl}</strong> — showing only this entity's data</div>`:''}
+
+    ${flags.length?`<div style="background:#fff5f5;border:1px solid #fdeaea;border-left:3px solid var(--red);border-radius:0 8px 8px 0;padding:10px 14px;margin-bottom:1rem;font-size:12px;line-height:1.7;">
+      <strong style="color:#a32020;">🚩 Quality flags for this staff:</strong>
+      ${flags.map(f=>`<div style="margin-top:4px;">${f}</div>`).join('')}
+    </div>`:''}
+
+    <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
+      <div class="metric red"><div class="lbl">Total entries</div><div class="val">${fi(total)}</div></div>
+      <div class="metric"><div class="lbl">Reason diversity</div><div class="val">${reasonDiversity}</div><div class="sub">${reasonDiversity<=2?'⚠️ low':reasonDiversity<=4?'medium':'good'}</div></div>
+      <div class="metric ${phBadPct>40?'red':phBadPct>20?'amber':'green'}"><div class="lbl">Phone bad%</div><div class="val">${phBadPct}%</div><div class="sub">${fi(phBad+phMiss)} bad of ${fi(total)}</div></div>
+      <div class="metric green"><div class="lbl">Customer mix</div><div class="val" style="font-size:14px;padding-top:6px;">${fi(newC)} new / ${fi(repC)} rep</div></div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="section-lbl">Top reasons (col I)</div>
+        ${reasonArr.length?sortableTbl(['Reason','Count','Share%'],
+          reasonArr.slice(0,10).map(([k,v])=>({cells:[k,fi(v),`<span class="badge ${pct(v,total)>=40?'badge-red':pct(v,total)>=20?'badge-amber':'badge-green'}">${pct(v,total)}%</span>`]})),null):'<p style="color:var(--muted)">—</p>'}
+      </div>
+      <div>
+        <div class="section-lbl">Top categories</div>
+        ${catArr.length?sortableTbl(['Category','Count','Share%'],
+          catArr.slice(0,10).map(([k,v])=>({cells:[k,fi(v),`<span class="badge ${pct(v,total)>=40?'badge-red':pct(v,total)>=20?'badge-amber':'badge-green'}">${pct(v,total)}%</span>`]})),null):'<p style="color:var(--muted)">—</p>'}
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="section-lbl">⏰ Time pattern</div>
+        ${timeArr.length?sortableTbl(['Time slot','Count','Share%'],
+          timeArr.map(([k,v])=>({cells:[k,fi(v),`${pct(v,total)}% ${peakTime&&k===peakTime[0]?'⚡':''}`]})),null):'<p style="color:var(--muted)">—</p>'}
+      </div>
+      <div>
+        <div class="section-lbl">Stores covered (${storeArr.length})</div>
+        ${storeArr.length?sortableTbl(['Store','Entries','Share%'],
+          storeArr.slice(0,10).map(([k,v])=>({cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,fi(v),`${pct(v,total)}%`]})),null):'<p style="color:var(--muted)">—</p>'}
+      </div>
+    </div>
+
+    <div class="section-lbl">📋 Loss entries by ${staff}${total>200?' (showing first 200 of '+fi(total)+')':''}</div>
+    ${sortableTbl(
+      ['Date','Time','Cust type','Customer','Phone','Store','Category','Reason'],
+      detailRows,
+      null
+    )}`
+  );
+};
+
 window.showStaffDrillModal=function(staff,store,category,reasonValue,sourceCol){
   const{storeIdx,catIdx,empIdx,custIdx,nameIdx,phoneIdx,dateIdx,timingIdx,notesIdx,subCatIdx,sizeIdx,styleIdx,colorIdx,polishIdx,designIdx,reasonIdx,subReasonIdx}=_LS_IDX;
   if(empIdx<0){alert('Employee column not found');return;}
@@ -2298,8 +4020,14 @@ window.showStaffDrillModal=function(staff,store,category,reasonValue,sourceCol){
 window.showReasonModal=function(reason){
   const f=getFilters();
   const{storeIdx,catIdx,reasonIdx,custIdx}=_LS_IDX;
-  const rows=filterLS(f).filter(r=>reasonIdx>=0&&String(r[reasonIdx]||'')===reason);
+  // If scoped to a specific store, jump straight to category drill
+  const sc=window._insScope;
+  if(sc&&sc.mode==='store'&&sc.entity){
+    return showReasonStoreCatModal(reason,'I',sc.entity);
+  }
+  const rows=applyInsScope(filterLS(f)).filter(r=>reasonIdx>=0&&String(r[reasonIdx]||'')===reason);
   const total=rows.length;
+  const scopeLbl=insScopeLabel();
 
   // Group by store with full details
   const storeMap={};
@@ -2343,7 +4071,8 @@ window.showReasonModal=function(reason){
     ]};
   });
 
-  openModal(`Reason: "${reason}"`,`${fi(total)} entries · ${storeArr.length} stores · ${mktArr.length} markets`,`
+  openModal(`Reason: "${reason}"${scopeLbl?' · '+scopeLbl:''}`,`${fi(total)} entries · ${storeArr.length} stores · ${mktArr.length} markets${scopeLbl?' · 🔒 scoped':''}`,`
+    ${scopeLbl?`<div style="background:#fff8e6;border:1px solid #f0d68a;border-radius:8px;padding:8px 12px;margin-bottom:.75rem;font-size:11px;color:#a05d0a;">🔒 <strong>Scoped to ${scopeLbl}</strong> — showing only this entity's data</div>`:''}
     <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
       <div class="metric red"><div class="lbl">Total for this reason</div><div class="val">${fi(total)}</div><div class="sub">${pct(total,filterLS(f).length)}% of all loss</div></div>
       <div class="metric"><div class="lbl">Stores affected</div><div class="val">${storeArr.length}</div></div>
