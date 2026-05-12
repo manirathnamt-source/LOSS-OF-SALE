@@ -13,7 +13,8 @@ import LossDetail from './views/LossDetail.jsx';
 import CategoryAnalysis from './views/CategoryAnalysis.jsx';
 import WeeklyComparison from './views/WeeklyComparison.jsx';
 import Audit from './views/Audit.jsx';
-import PlaceholderView from './views/Placeholder.jsx';
+import Insights from './views/Insights.jsx';
+import Ask from './views/Ask.jsx';
 
 const VIEWS = {
   ov:    () => <Overview />,
@@ -21,8 +22,8 @@ const VIEWS = {
   lsd:   () => <LossDetail />,
   cat:   () => <CategoryAnalysis />,
   wkly:  () => <WeeklyComparison />,
-  ask:   () => <PlaceholderView name="💬 Ask" />,
-  ins:   () => <PlaceholderView name="💎 Insights" />,
+  ask:   () => <Ask />,
+  ins:   () => <Insights />,
   audit: () => <Audit />,
 };
 

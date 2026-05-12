@@ -1,15 +1,20 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useDashboard } from '../store/DashboardContext.jsx';
 import { filterLSTab } from '../lib/filter.js';
 import { fi, fs, pct, bc, n } from '../lib/format.js';
 import { fmtDK } from '../lib/date.js';
 import { groupBy } from '../lib/aggregate.js';
 import { getCustCounts } from '../lib/customer.js';
+import { buildReasonModal, buildCategoryModal, buildStoreModal } from '../lib/modalBuilders.jsx';
 import SortableTable from '../components/SortableTable.jsx';
 
 export default function LossOfSale() {
-  const { merged, filters, lsSyncOn } = useDashboard();
-  const { lsRows, idx: lsIdx } = merged;
+  const dash = useDashboard();
+  const { merged, filters, lsSyncOn, setModal } = dash;
+  const { wk, lsRows, idx: lsIdx } = merged;
+  const openReason   = useCallback((k) => setModal(buildReasonModal(k,   { wk, lsRows, lsIdx, filters })), [wk, lsRows, lsIdx, filters, setModal]);
+  const openCategory = useCallback((k) => setModal(buildCategoryModal(k, { wk, lsRows, lsIdx, filters })), [wk, lsRows, lsIdx, filters, setModal]);
+  const openStore    = useCallback((k) => setModal(buildStoreModal(k,    { wk, lsRows, lsIdx, filters })), [wk, lsRows, lsIdx, filters, setModal]);
 
   const data = useMemo(() => {
     const rows = filterLSTab(lsRows, lsIdx, filters, lsSyncOn);
@@ -153,32 +158,38 @@ export default function LossOfSale() {
       </div>
 
       <div className="card">
-        <div className="card-title">Loss by reason</div>
+        <div className="card-title">Loss by reason — click to drill</div>
         <SortableTable
           columns={baseHdr('Reason')}
-          rows={reasonGrp.map(([k, v]) => baseRow(k, v, prAlert))}
+          rows={reasonGrp.map(([k, v]) => {
+            const sh = pct(v.c, total);
+            return { cells: [<span className="clickable" onClick={() => openReason(k)}>{k}</span>, fi(v.c), ...(qtyIdx >= 0 ? [fi(v.q)] : []), ...(valIdx >= 0 ? [`₹${fs(v.v)}`] : []), `${sh}%`, prAlert(sh)] };
+          })}
           footer={baseFooter()}
         />
       </div>
 
       <div className="card">
-        <div className="card-title">Loss by category</div>
+        <div className="card-title">Loss by category — click to drill</div>
         <SortableTable
           columns={baseHdr('Category')}
-          rows={catGrp.map(([k, v]) => baseRow(k, v, prAlert))}
+          rows={catGrp.map(([k, v]) => {
+            const sh = pct(v.c, total);
+            return { cells: [<span className="clickable" onClick={() => openCategory(k)}>{k}</span>, fi(v.c), ...(qtyIdx >= 0 ? [fi(v.q)] : []), ...(valIdx >= 0 ? [`₹${fs(v.v)}`] : []), `${sh}%`, prAlert(sh)] };
+          })}
           footer={baseFooter()}
         />
       </div>
 
       <div className="card">
-        <div className="card-title">Loss by store</div>
+        <div className="card-title">Loss by store — click for detail</div>
         <SortableTable
           columns={[...baseHdr('Store'), '🆕 New', '🔁 Repeat']}
           rows={storeGrp.map(([k, v]) => {
             const sh = pct(v.c, total);
             const cc = getCustCounts(v.items || [], lsIdx.custIdx);
             return { cells: [
-              k, fi(v.c),
+              <span className="clickable" onClick={() => openStore(k)}>{k}</span>, fi(v.c),
               ...(qtyIdx >= 0 ? [fi(v.q)] : []),
               ...(valIdx >= 0 ? [`₹${fs(v.v)}`] : []),
               `${sh}%`, stAlert(sh),

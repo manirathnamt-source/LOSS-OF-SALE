@@ -1,14 +1,19 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useDashboard } from '../store/DashboardContext.jsx';
 import { filterLS } from '../lib/filter.js';
 import { fi, fs, pct, n } from '../lib/format.js';
 import { fmtDK, toDayKey } from '../lib/date.js';
 import { groupBy } from '../lib/aggregate.js';
+import { buildRMModal, buildMarketModal, buildStoreModal } from '../lib/modalBuilders.jsx';
 import SortableTable from '../components/SortableTable.jsx';
 
 export default function LossDetail() {
-  const { merged, filters } = useDashboard();
+  const dash = useDashboard();
+  const { merged, filters, setModal } = dash;
   const { wk, lsRows, idx: lsIdx } = merged;
+  const openRM     = useCallback((k) => setModal(buildRMModal(k,     { wk, lsRows, lsIdx, filters })), [wk, lsRows, lsIdx, filters, setModal]);
+  const openMarket = useCallback((k) => setModal(buildMarketModal(k, { wk, lsRows, lsIdx, filters })), [wk, lsRows, lsIdx, filters, setModal]);
+  const openStore  = useCallback((k) => setModal(buildStoreModal(k,  { wk, lsRows, lsIdx, filters })), [wk, lsRows, lsIdx, filters, setModal]);
 
   const data = useMemo(() => {
     const f = filters;
@@ -38,9 +43,15 @@ export default function LossDetail() {
   const stAlert = (sh) => sh >= 10 ? <span className="badge badge-red">High</span> : sh >= 5 ? <span className="badge badge-amber">Watch</span> : <span className="badge badge-green">OK</span>;
   const hdr = (firstCol) => [firstCol, 'Count', ...(qtyIdx >= 0 ? ['Qty'] : []), ...(valIdx >= 0 ? ['Value'] : []), 'Share%', 'Alert'];
   const ftr = () => ['Total', fi(total), ...(qtyIdx >= 0 ? [fi(totalQty)] : []), ...(valIdx >= 0 ? [`₹${fs(totalVal)}`] : []), '100%', ''];
-  const row = (k, v) => {
+  const row = (k, v, onClick) => {
     const sh = pct(v.c, total);
-    return { cells: [k, fi(v.c), ...(qtyIdx >= 0 ? [fi(v.q)] : []), ...(valIdx >= 0 ? [`₹${fs(v.v)}`] : []), `${sh}%`, stAlert(sh)] };
+    return { cells: [
+      onClick ? <span className="clickable" onClick={() => onClick(k)}>{k}</span> : k,
+      fi(v.c),
+      ...(qtyIdx >= 0 ? [fi(v.q)] : []),
+      ...(valIdx >= 0 ? [`₹${fs(v.v)}`] : []),
+      `${sh}%`, stAlert(sh),
+    ] };
   };
 
   return (
@@ -93,16 +104,16 @@ export default function LossDetail() {
       </div>
 
       <div className="card">
-        <div className="card-title">Loss by regional manager</div>
-        <SortableTable columns={hdr('RM')} rows={rmGrp.map(([k, v]) => row(k, v))} footer={ftr()} />
+        <div className="card-title">Loss by regional manager — click RM for store details</div>
+        <SortableTable columns={hdr('RM')} rows={rmGrp.map(([k, v]) => row(k, v, openRM))} footer={ftr()} />
       </div>
       <div className="card">
-        <div className="card-title">Loss by market</div>
-        <SortableTable columns={hdr('Market')} rows={mktGrp.map(([k, v]) => row(k, v))} footer={ftr()} />
+        <div className="card-title">Loss by market — click market for store details</div>
+        <SortableTable columns={hdr('Market')} rows={mktGrp.map(([k, v]) => row(k, v, openMarket))} footer={ftr()} />
       </div>
       <div className="card">
-        <div className="card-title">Loss by store</div>
-        <SortableTable columns={hdr('Store')} rows={sGrp.map(([k, v]) => row(k, v))} footer={ftr()} />
+        <div className="card-title">Loss by store — click for detailed report</div>
+        <SortableTable columns={hdr('Store')} rows={sGrp.map(([k, v]) => row(k, v, openStore))} footer={ftr()} />
       </div>
     </>
   );

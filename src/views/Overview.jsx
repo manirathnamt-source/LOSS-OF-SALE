@@ -1,14 +1,18 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useDashboard } from '../store/DashboardContext.jsx';
 import { filterStores, filterLS, dateInRange, daysInRange } from '../lib/filter.js';
 import { fi, pct, bc } from '../lib/format.js';
 import { fmtDK } from '../lib/date.js';
 import { getCustCounts } from '../lib/customer.js';
+import { buildRMModal, buildMarketModal } from '../lib/modalBuilders.jsx';
 import SortableTable from '../components/SortableTable.jsx';
 
 export default function Overview() {
-  const { merged, filters } = useDashboard();
+  const dash = useDashboard();
+  const { merged, filters, setModal } = dash;
   const { wk, lsRows, idx: lsIdx } = merged;
+  const openRM     = useCallback((rm)     => setModal(buildRMModal(rm,         { wk, lsRows, lsIdx, filters })), [wk, lsRows, lsIdx, filters, setModal]);
+  const openMarket = useCallback((market) => setModal(buildMarketModal(market, { wk, lsRows, lsIdx, filters })), [wk, lsRows, lsIdx, filters, setModal]);
 
   const data = useMemo(() => {
     const f = filters;
@@ -104,7 +108,7 @@ export default function Overview() {
             const lsPct = pct(v.ls, nb);
             const active = v.stores - v.zeroStores;
             return { cells: [
-              <strong>{rm}</strong>,
+              <span className="clickable" onClick={() => openRM(rm)}>{rm}</span>,
               fi(v.stores),
               fi(active),
               v.zeroStores > 0
@@ -143,7 +147,7 @@ export default function Overview() {
             const lsPct = pct(v.ls, nb);
             const cc = getCustCounts(v.items || [], custIdx);
             return { cells: [
-              mkt,
+              <span className="clickable" onClick={() => openMarket(mkt)}>{mkt}</span>,
               fi(v.w),
               fi(v.b),
               fi(nb),
