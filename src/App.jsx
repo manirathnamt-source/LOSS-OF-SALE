@@ -8,17 +8,22 @@ import Setup from './components/Setup.jsx';
 import { ErrorCard } from './components/Loading.jsx';
 import { MetricsSkeleton, TableSkeleton, FilterBarSkeleton } from './components/Skeleton.jsx';
 import Overview from './views/Overview.jsx';
+import LossOfSale from './views/LossOfSale.jsx';
+import LossDetail from './views/LossDetail.jsx';
+import CategoryAnalysis from './views/CategoryAnalysis.jsx';
+import WeeklyComparison from './views/WeeklyComparison.jsx';
+import Audit from './views/Audit.jsx';
 import PlaceholderView from './views/Placeholder.jsx';
 
 const VIEWS = {
   ov:    () => <Overview />,
-  ls:    () => <PlaceholderView name="Loss of Sale" />,
-  lsd:   () => <PlaceholderView name="Loss Detail" />,
-  cat:   () => <PlaceholderView name="Category Analysis" />,
-  wkly:  () => <PlaceholderView name="Weekly Comparison" />,
+  ls:    () => <LossOfSale />,
+  lsd:   () => <LossDetail />,
+  cat:   () => <CategoryAnalysis />,
+  wkly:  () => <WeeklyComparison />,
   ask:   () => <PlaceholderView name="💬 Ask" />,
   ins:   () => <PlaceholderView name="💎 Insights" />,
-  audit: () => <PlaceholderView name="Audit" />,
+  audit: () => <Audit />,
 };
 
 function Shell() {
