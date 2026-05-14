@@ -1,6 +1,5 @@
 import { useDashboard, STATUS, MODE } from '../store/DashboardContext.jsx';
 import { useTheme } from '../hooks/useTheme.js';
-import { fmtDK } from '../lib/date.js';
 
 function fmtRelative(ts) {
   if (!ts) return '';
@@ -12,25 +11,26 @@ function fmtRelative(ts) {
 }
 
 export default function TopBar({ onReconfigure }) {
-  const { mode, status, data, fileMeta, error, refreshing, lastSyncTs, refresh } = useDashboard();
+  const { mode, status, activeMonths, months, fileMeta, error, refreshing, lastSyncTs, refresh } = useDashboard();
   const { theme, toggle: toggleTheme } = useTheme();
 
   const sourceLabel = mode === MODE.FILE && fileMeta?.fileName ? fileMeta.fileName : 'Live sheet';
-  const dks = data?.dks || [];
-  const rangeLabel = dks.length ? `${fmtDK(dks[0])} → ${fmtDK(dks[dks.length - 1])}` : '';
 
   let meta;
   if (status === STATUS.UNCONFIGURED) meta = 'No data loaded';
   else if (status === STATUS.DISCOVERING) meta = mode === MODE.FILE ? 'Reading workbook…' : 'Discovering sheet tabs…';
-  else if (status === STATUS.LOADING) meta = 'Loading data…';
-  else if (status === STATUS.ERROR && !data) meta = `Error — ${error?.slice(0, 60) || ''}`;
-  else meta = `${rangeLabel} · ${refreshing ? 'syncing…' : `${sourceLabel} · ${fmtRelative(lastSyncTs)}`}`;
+  else if (status === STATUS.LOADING) meta = `Loading ${activeMonths.length} month${activeMonths.length > 1 ? 's' : ''}…`;
+  else if (status === STATUS.ERROR && !activeMonths.length) meta = `Error — ${error?.slice(0, 60) || ''}`;
+  else {
+    const label = activeMonths.map(k => months[k]?.label).filter(Boolean).join(' + ');
+    meta = `${label} · ${refreshing ? 'syncing…' : `${sourceLabel} · ${fmtRelative(lastSyncTs)}`}`;
+  }
 
   const canSync = status === STATUS.READY || status === STATUS.ERROR;
 
   return (
     <div className="topbar">
-      <div className="brand">Discount <span>Dashboard</span></div>
+      <div className="brand">Loss of Sale <span>Dashboard</span></div>
       <div className="topbar-right">
         <div className="topbar-meta">{meta}</div>
         <button

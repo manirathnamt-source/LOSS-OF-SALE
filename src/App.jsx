@@ -8,23 +8,23 @@ import Setup from './components/Setup.jsx';
 import { ErrorCard } from './components/Loading.jsx';
 import { MetricsSkeleton, TableSkeleton, FilterBarSkeleton } from './components/Skeleton.jsx';
 import Overview from './views/Overview.jsx';
-import Offers from './views/Offers.jsx';
-import Outlets from './views/Outlets.jsx';
-import Families from './views/Families.jsx';
-import FreeItems from './views/FreeItems.jsx';
-import Daily from './views/Daily.jsx';
-import Margin from './views/Margin.jsx';
+import LossOfSale from './views/LossOfSale.jsx';
+import LossDetail from './views/LossDetail.jsx';
+import CategoryAnalysis from './views/CategoryAnalysis.jsx';
+import WeeklyComparison from './views/WeeklyComparison.jsx';
+import Audit from './views/Audit.jsx';
+import Insights from './views/Insights.jsx';
 import Ask from './views/Ask.jsx';
 
 const VIEWS = {
-  ov:      () => <Overview />,
-  offers:  () => <Offers />,
-  outlets: () => <Outlets />,
-  family:  () => <Families />,
-  free:    () => <FreeItems />,
-  daily:   () => <Daily />,
-  margin:  () => <Margin />,
-  ask:     () => <Ask />,
+  ov:    () => <Overview />,
+  ls:    () => <LossOfSale />,
+  lsd:   () => <LossDetail />,
+  cat:   () => <CategoryAnalysis />,
+  wkly:  () => <WeeklyComparison />,
+  ask:   () => <Ask />,
+  ins:   () => <Insights />,
+  audit: () => <Audit />,
 };
 
 function Shell() {
@@ -82,7 +82,7 @@ function EmptyState({ onOpen }) {
     <div className="empty-state">
       <div className="empty-emoji">📊</div>
       <div className="empty-title">No data yet</div>
-      <div className="empty-hint">Click <strong>⚙</strong> in the top right to connect a Google Sheet or upload an Excel file with <strong>Discount Report</strong> + <strong>Mapping</strong> tabs.</div>
+      <div className="empty-hint">Click <strong>⚙</strong> in the top right to upload your Excel file or connect a Google Sheet.</div>
       <button className="btn-primary" onClick={onOpen}>Load data</button>
     </div>
   );

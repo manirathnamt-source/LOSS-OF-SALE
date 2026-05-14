@@ -1,13 +1,16 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { parseWalkins, parseLoss } from '../lib/parse.js';
+import { mergeMonths } from '../lib/merge.js';
+import { EMPTY_FILTERS } from '../lib/filter.js';
 import {
   getMode, getSheetUrl, getSheetId, getApiKey, getFileMeta,
   setSheetConfig, setFileConfig, clearConfig, MODE,
 } from '../lib/config.js';
 import { getCached, setCached, clearAll as clearCache } from '../lib/cache.js';
-import { extractSheetId, getSpreadsheetTabs, batchGetTabs } from '../lib/sheetsApi.js';
-import { parseXlsxFile, parseXlsxBuffer } from '../lib/xlsx.js';
+import { extractSheetId, discoverViaApi, fetchMonthsViaApi, getSpreadsheetTabs } from '../lib/sheetsApi.js';
+import { parseXlsxFile } from '../lib/xlsx.js';
+import { discoverMonthsFromWorkbook, getTabData } from '../lib/fileSource.js';
 import { saveWorkbook, loadWorkbook, clearWorkbook } from '../lib/fileCache.js';
-import { parseDiscount, parseMapping, applyFilters, EMPTY_FILTERS } from '../lib/discount.js';
 
 const DashboardCtx = createContext(null);
 
@@ -25,29 +28,6 @@ const STATUS = {
   ERROR:        'error',
 };
 
-const REQUIRED_TABS = ['Discount Report', 'Mapping']; // Sales Report is optional / may be empty
-
-function pickTab(allTabs, candidates) {
-  const lower = allTabs.map(t => t.toLowerCase());
-  for (const c of candidates) {
-    const i = lower.indexOf(c.toLowerCase());
-    if (i >= 0) return allTabs[i];
-  }
-  for (const c of candidates) {
-    const i = lower.findIndex(t => t.includes(c.toLowerCase()));
-    if (i >= 0) return allTabs[i];
-  }
-  return null;
-}
-
-function buildFromSheets(rawData) {
-  const discountRaw = rawData['Discount Report'] || { headers: [], rows: [] };
-  const mappingRaw  = rawData['Mapping']         || { headers: [], rows: [] };
-  const mapping = parseMapping(mappingRaw.headers, mappingRaw.rows);
-  const disc = parseDiscount(discountRaw.headers, discountRaw.rows, mapping);
-  return { ...disc, mapping };
-}
-
 export function DashboardProvider({ children }) {
   const [mode, setMode] = useState(() => getMode());
   const [sheetUrl, setSheetUrlState] = useState(() => getSheetUrl());
@@ -61,58 +41,41 @@ export function DashboardProvider({ children }) {
 
   const initialStatus =
     (mode === MODE.SHEET && sheetId && apiKey) || (mode === MODE.FILE && fileMeta)
-      ? STATUS.DISCOVERING : STATUS.UNCONFIGURED;
+      ? STATUS.DISCOVERING
+      : STATUS.UNCONFIGURED;
 
   const [status, setStatus] = useState(initialStatus);
   const [error, setError] = useState(null);
-  const [data, setData] = useState(null);
+  const [months, setMonths] = useState({});
+  const [activeMonths, setActiveMonths] = useState([]);
+  const [monthData, setMonthData] = useState({});
   const [refreshing, setRefreshing] = useState(false);
   const [lastSyncTs, setLastSyncTs] = useState(null);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [lsSyncOn, setLsSyncOn] = useState(false);
   const [modal, setModal] = useState(null);
+  const reloadKey = useRef(0);
 
-  const loadFromSheet = useCallback(async (sid, key, opts = {}) => {
-    if (!sid || !key) { setStatus(STATUS.UNCONFIGURED); return; }
-    let renderedFromCache = false;
-
-    if (!opts.skipCache) {
-      const cached = getCached(sid, 'discount');
-      if (cached?.data) {
-        try {
-          const built = buildFromSheets(cached.data);
-          setData(built);
-          setLastSyncTs(cached.ts);
-          setStatus(STATUS.READY);
-          renderedFromCache = true;
-        } catch { /* fall through */ }
-      }
+  const buildFromParsed = useCallback((parsed) => {
+    const disc = discoverMonthsFromWorkbook(parsed);
+    if (!disc.activeMonths.length) {
+      throw new Error(`No paired month tabs found in workbook. Sheets seen: ${parsed.sheetNames.slice(0, 8).join(', ')}${parsed.sheetNames.length > 8 ? '…' : ''}`);
     }
-    setRefreshing(renderedFromCache);
-    if (!renderedFromCache) setStatus(STATUS.DISCOVERING);
-
-    try {
-      const tabs = await getSpreadsheetTabs(sid, key);
-      const wanted = REQUIRED_TABS.map(t => pickTab(tabs, [t])).filter(Boolean);
-      if (wanted.length < 2) {
-        throw new Error(`Sheet must contain "Discount Report" and "Mapping" tabs. Found: ${tabs.join(', ')}`);
-      }
-      if (!renderedFromCache) setStatus(STATUS.LOADING);
-      const fetched = await batchGetTabs(sid, key, wanted);
-      const normalized = {};
-      REQUIRED_TABS.forEach((name, i) => { normalized[name] = fetched[wanted[i]] || { headers: [], rows: [] }; });
-      setCached(sid, 'discount', null, normalized);
-      const built = buildFromSheets(normalized);
-      setData(built);
-      setLastSyncTs(Date.now());
-      setStatus(STATUS.READY);
-      setError(null);
-    } catch (e) {
-      const msg = e?.message || String(e);
-      if (renderedFromCache) setError(msg);
-      else { setError(msg); setStatus(STATUS.ERROR); }
-    } finally {
-      setRefreshing(false);
-    }
+    const next = {};
+    disc.activeMonths.forEach(k => {
+      const m = disc.months[k];
+      const wkData = getTabData(parsed, m.wkTab);
+      const lsData = getTabData(parsed, m.lsTab);
+      const wk = parseWalkins(wkData.headers || [], wkData.rows || []);
+      next[k] = { wk, lsHeaders: lsData.headers || [], lsRowsRaw: lsData.rows || [] };
+    });
+    return {
+      months: Object.fromEntries(
+        Object.entries(disc.months).map(([k, m]) => [k, { num: m.num, year: m.year, label: m.label, wkTab: m.wkTab, lsTab: m.lsTab }])
+      ),
+      activeMonths: disc.activeMonths,
+      monthData: next,
+    };
   }, []);
 
   const loadFromFile = useCallback(async () => {
@@ -126,31 +89,113 @@ export function DashboardProvider({ children }) {
         return;
       }
       setStatus(STATUS.LOADING);
-      const tabs = wrap.parsed.sheetNames;
-      const wanted = REQUIRED_TABS.map(t => pickTab(tabs, [t])).filter(Boolean);
-      if (wanted.length < 2) throw new Error(`Workbook must contain "Discount Report" and "Mapping" tabs. Found: ${tabs.join(', ')}`);
-      const normalized = {};
-      REQUIRED_TABS.forEach((name, i) => { normalized[name] = wrap.parsed.sheets[wanted[i]] || { headers: [], rows: [] }; });
-      const built = buildFromSheets(normalized);
-      setData(built);
+      const built = buildFromParsed(wrap.parsed);
+      setMonths(built.months);
+      setActiveMonths(built.activeMonths);
+      setMonthData(built.monthData);
       setLastSyncTs(wrap.ts);
       setStatus(STATUS.READY);
     } catch (e) {
       setError(e.message || String(e));
       setStatus(STATUS.ERROR);
     }
+  }, [buildFromParsed]);
+
+  const loadFromSheet = useCallback(async (sid, key, opts = {}) => {
+    if (!sid || !key) { setStatus(STATUS.UNCONFIGURED); return; }
+    const cacheKey = sid;
+    let renderedFromCache = false;
+
+    if (!opts.skipCache) {
+      const cachedReg = getCached(cacheKey, 'registry');
+      if (cachedReg?.data?.activeMonths?.length) {
+        const reg = cachedReg.data;
+        const cachedMd = {};
+        let allFound = true;
+        for (const k of reg.activeMonths) {
+          const m = reg.months[k];
+          const wkC = getCached(cacheKey, 'tab', m.wkTab);
+          const lsC = getCached(cacheKey, 'tab', m.lsTab);
+          if (wkC?.data && lsC?.data) {
+            const wk = parseWalkins(wkC.data.headers || [], wkC.data.rows || []);
+            cachedMd[k] = { wk, lsHeaders: lsC.data.headers || [], lsRowsRaw: lsC.data.rows || [] };
+          } else { allFound = false; break; }
+        }
+        if (allFound) {
+          setMonths(reg.months);
+          setActiveMonths(reg.activeMonths);
+          setMonthData(cachedMd);
+          setLastSyncTs(cachedReg.ts);
+          setStatus(STATUS.READY);
+          renderedFromCache = true;
+        }
+      }
+    }
+
+    setRefreshing(renderedFromCache);
+    if (!renderedFromCache) setStatus(STATUS.DISCOVERING);
+
+    try {
+      const disc = await discoverViaApi(sid, key);
+      if (!disc.activeMonths.length) {
+        if (!renderedFromCache) {
+          const seen = (disc.allTabNames || []).slice(0, 8).join(', ');
+          setError(`No paired Walkins/Loss month tabs found. Tabs seen: ${seen}${(disc.allTabNames || []).length > 8 ? '…' : ''}`);
+          setStatus(STATUS.ERROR);
+        }
+        setRefreshing(false);
+        return;
+      }
+
+      const regToCache = { months: disc.months, activeMonths: disc.activeMonths };
+      setCached(cacheKey, 'registry', null, regToCache);
+      setMonths(regToCache.months);
+      setActiveMonths(regToCache.activeMonths);
+      if (!renderedFromCache) setStatus(STATUS.LOADING);
+
+      const fetched = await fetchMonthsViaApi(sid, key, disc.months, disc.activeMonths);
+      const next = {};
+      disc.activeMonths.forEach(k => {
+        const m = disc.months[k];
+        const { wkRaw, lsRaw } = fetched[k];
+        setCached(cacheKey, 'tab', m.wkTab, wkRaw);
+        setCached(cacheKey, 'tab', m.lsTab, lsRaw);
+        const wk = parseWalkins(wkRaw.headers, wkRaw.rows);
+        next[k] = { wk, lsHeaders: lsRaw.headers, lsRowsRaw: lsRaw.rows };
+      });
+      setMonthData(next);
+      setLastSyncTs(Date.now());
+      setStatus(STATUS.READY);
+      setError(null);
+    } catch (e) {
+      const msg = e?.message || String(e);
+      if (renderedFromCache) setError(msg);
+      else { setError(msg); setStatus(STATUS.ERROR); }
+    } finally {
+      setRefreshing(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (mode === MODE.FILE && fileMeta) loadFromFile();
-    else if (mode === MODE.SHEET && sheetId && apiKey) loadFromSheet(sheetId, apiKey);
-    else setStatus(STATUS.UNCONFIGURED);
+    reloadKey.current++;
+    if (mode === MODE.FILE && fileMeta) {
+      loadFromFile();
+    } else if (mode === MODE.SHEET && sheetId && apiKey) {
+      loadFromSheet(sheetId, apiKey);
+    } else {
+      setStatus(STATUS.UNCONFIGURED);
+    }
   }, [mode, sheetId, apiKey, fileMeta, loadFromFile, loadFromSheet]);
 
-  const filtered = useMemo(() => {
-    if (!data) return null;
-    return { ...data, filteredRows: applyFilters(data.rows, filters) };
-  }, [data, filters]);
+  const merged = useMemo(() => {
+    if (status !== STATUS.READY || !Object.keys(monthData).length) return null;
+    const keys = filters.month === 'all' ? activeMonths : [filters.month];
+    const available = keys.filter(k => monthData[k]);
+    if (!available.length) return null;
+    const m = mergeMonths(monthData, available);
+    const ls = parseLoss(m.lsHeaders, m.lsRowsRaw, m.wk);
+    return { wk: m.wk, lsHeaders: m.lsHeaders, ...ls };
+  }, [status, filters.month, activeMonths, monthData]);
 
   const setFilter = useCallback((key, value) => {
     setFilters(prev => {
@@ -159,16 +204,30 @@ export function DashboardProvider({ children }) {
       return next;
     });
   }, []);
+
   const resetFilters = useCallback(() => setFilters(EMPTY_FILTERS), []);
 
   const connectSheet = useCallback(async (url, key) => {
     const id = extractSheetId(url);
-    if (!id) { setError('Could not extract sheet ID from URL'); setStatus(STATUS.ERROR); return false; }
-    if (!key || !key.trim()) { setError('Please paste your Google Sheets API key'); setStatus(STATUS.ERROR); return false; }
+    if (!id) {
+      setError('Could not extract sheet ID from that URL.');
+      setStatus(STATUS.ERROR);
+      return false;
+    }
+    if (!key || !key.trim()) {
+      setError('Please paste your Google Sheets API key.');
+      setStatus(STATUS.ERROR);
+      return false;
+    }
     setStatus(STATUS.DISCOVERING);
     setError(null);
-    try { await getSpreadsheetTabs(id, key.trim()); }
-    catch (e) { setError(e.message || String(e)); setStatus(STATUS.ERROR); return false; }
+    try {
+      await getSpreadsheetTabs(id, key.trim());
+    } catch (e) {
+      setError(e.message || String(e));
+      setStatus(STATUS.ERROR);
+      return false;
+    }
     setSheetConfig(url, id, key.trim());
     setSheetUrlState(url);
     setSheetIdState(id);
@@ -182,9 +241,10 @@ export function DashboardProvider({ children }) {
     setError(null);
     try {
       const parsed = await parseXlsxFile(file);
-      const tabs = parsed.sheetNames;
-      const wanted = REQUIRED_TABS.map(t => pickTab(tabs, [t])).filter(Boolean);
-      if (wanted.length < 2) throw new Error(`Couldn't find "Discount Report" + "Mapping" tabs. Saw: ${tabs.slice(0, 8).join(', ')}`);
+      const disc = discoverMonthsFromWorkbook(parsed);
+      if (!disc.activeMonths.length) {
+        throw new Error(`Couldn't find any paired Walkins + Loss of sale tabs. Tabs seen: ${parsed.sheetNames.slice(0, 8).join(', ')}${parsed.sheetNames.length > 8 ? '…' : ''}`);
+      }
       await saveWorkbook(parsed);
       const meta = { fileName: parsed.fileName, fileSize: parsed.fileSize, sheetCount: parsed.sheetNames.length, ts: Date.now() };
       setFileConfig(meta);
@@ -218,8 +278,11 @@ export function DashboardProvider({ children }) {
     clearConfig();
     clearCache();
     await clearWorkbook();
-    setMode(''); setSheetUrlState(''); setSheetIdState(''); setApiKeyState('');
-    setFileMetaState(null); setData(null); setLastSyncTs(null); setError(null);
+    setMode('');
+    setSheetUrlState(''); setSheetIdState(''); setApiKeyState('');
+    setFileMetaState(null);
+    setMonths({}); setActiveMonths([]); setMonthData({});
+    setLastSyncTs(null); setError(null);
     setStatus(STATUS.UNCONFIGURED);
   }, []);
 
@@ -230,12 +293,16 @@ export function DashboardProvider({ children }) {
 
   const value = useMemo(() => ({
     mode, sheetUrl, sheetId, apiKey, fileMeta,
-    status, error, data: filtered, refreshing, lastSyncTs,
+    status, error,
+    months, activeMonths, monthData, merged,
+    refreshing, lastSyncTs,
     filters, setFilter, resetFilters,
+    lsSyncOn, setLsSyncOn,
     modal, setModal,
-    connectSheet, connectFile, connectSampleFile, disconnect, refresh,
-    isReady: status === STATUS.READY && !!filtered,
-  }), [mode, sheetUrl, sheetId, apiKey, fileMeta, status, error, filtered, refreshing, lastSyncTs, filters, setFilter, resetFilters, modal, connectSheet, connectFile, connectSampleFile, disconnect, refresh]);
+    connectSheet, connectFile, connectSampleFile,
+    disconnect, refresh,
+    isReady: status === STATUS.READY && !!merged,
+  }), [mode, sheetUrl, sheetId, apiKey, fileMeta, status, error, months, activeMonths, monthData, merged, refreshing, lastSyncTs, filters, setFilter, resetFilters, lsSyncOn, modal, connectSheet, connectFile, connectSampleFile, disconnect, refresh]);
 
   return <DashboardCtx.Provider value={value}>{children}</DashboardCtx.Provider>;
 }

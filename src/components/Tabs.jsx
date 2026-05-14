@@ -1,12 +1,12 @@
 const TABS = [
-  { id: 'ov',     label: 'Overview' },
-  { id: 'offers', label: 'Offers' },
-  { id: 'outlets',label: 'Outlets' },
-  { id: 'family', label: 'Categories' },
-  { id: 'free',   label: '🎁 Free Items' },
-  { id: 'daily',  label: 'Daily' },
-  { id: 'margin', label: 'Margin' },
-  { id: 'ask',    label: '💬 Ask' },
+  { id: 'ov',    label: 'Overview' },
+  { id: 'ls',    label: 'Loss of Sale' },
+  { id: 'lsd',   label: 'Loss Detail' },
+  { id: 'cat',   label: 'Category Analysis' },
+  { id: 'wkly',  label: 'Weekly Comparison' },
+  { id: 'ask',   label: '💬 Ask' },
+  { id: 'ins',   label: '💎 Insights' },
+  { id: 'audit', label: 'Audit' },
 ];
 
 export default function Tabs({ active, onChange }) {

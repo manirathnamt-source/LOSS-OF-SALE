@@ -52,10 +52,6 @@ export function parseDate(raw) {
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
   if (m) return { year: 2000 + parseInt(m[3]), month: parseInt(m[2]), day: parseInt(m[1]) };
 
-  // DD-MM-YYYY (numeric, hyphenated) — e.g., "01-05-2026"
-  m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-  if (m) return { year: parseInt(m[3]), month: parseInt(m[2]), day: parseInt(m[1]) };
-
   return null;
 }
 
