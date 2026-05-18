@@ -20,18 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - run: npm ci
-
-      - name: Build
-        env:
-          VITE_GOOGLE_API_KEY: ${{ secrets.VITE_GOOGLE_API_KEY }}
-          VITE_SHEET_URL: ${{ secrets.VITE_SHEET_URL }}
-        run: npm run build
+      - name: Stage static site
+        run: |
+          mkdir -p dist
+          cp index.html dist/
 
       - uses: actions/upload-pages-artifact@v3
         with:
