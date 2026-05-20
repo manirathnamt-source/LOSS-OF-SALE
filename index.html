@@ -3485,7 +3485,96 @@ function renderPurpose(){
           </tr>`;
         }).join('')}</tbody>
       </table></div>
-    </div>`;
+    </div>
+
+    <!-- Store × Purpose coverage matrix (Zero = not collected) -->
+    ${(()=>{
+      // Build store × purpose matrix from ALL rows (no filter on purpose).
+      // Each store gets a row, each distinct purpose value a column, plus a "(blank)" column
+      // for entries where the staff didn't capture purpose. Stores with zero data in a
+      // given purpose column show "0".
+      const purposeKeys=[...allPurposes,'(blank)']; // include blank as last column
+      const storeM={};
+      rows.forEach(r=>{
+        if(storeIdx<0)return;
+        const sn=String(r[storeIdx]||'').trim()||'Unknown';
+        if(!storeM[sn])storeM[sn]={total:0,market:'—',rm:'—',cluster:'—',purposes:{}};
+        storeM[sn].total++;
+        purposeKeys.forEach(p=>{if(!(p in storeM[sn].purposes))storeM[sn].purposes[p]=0;});
+        const pVal=String(r[purposeIdx]||'').trim()||'(blank)';
+        storeM[sn].purposes[pVal]=(storeM[sn].purposes[pVal]||0)+1;
+        if(r._wkStore){storeM[sn].market=r._wkStore.market;storeM[sn].rm=r._wkStore.rm;storeM[sn].cluster=r._wkStore.cluster;}
+      });
+      // Pull walkin-side stores that may have NO loss entries at all but should still be flagged
+      // (these stores have collected zero loss data so by definition zero purpose data).
+      const f2=getFilters();
+      const wkStoresFilt=filterStores(_WK.stores,f2);
+      wkStoresFilt.forEach(s=>{
+        if(!storeM[s.outlet]){
+          storeM[s.outlet]={total:0,market:s.market,rm:s.rm,cluster:s.cluster,purposes:Object.fromEntries(purposeKeys.map(p=>[p,0]))};
+        }
+      });
+      const arr=Object.entries(storeM);
+      const totalStores=arr.length;
+      const totalCollected=arr.filter(([,v])=>v.purposes['(blank)']<v.total||v.total===0?false:false||v.total-v.purposes['(blank)']>0).length;
+      const zeroStores=arr.filter(([,v])=>v.total===0||(v.total-v.purposes['(blank)'])===0).length;
+      const allBlankStores=arr.filter(([,v])=>v.total>0&&v.purposes['(blank)']===v.total).length;
+      // Sort: zero-collection first, then lowest coverage% next, then largest total descending
+      arr.sort((a,b)=>{
+        const aCov=a[1].total>0?(a[1].total-a[1].purposes['(blank)'])/a[1].total:0;
+        const bCov=b[1].total>0?(b[1].total-b[1].purposes['(blank)'])/b[1].total:0;
+        if(aCov!==bCov)return aCov-bCov;
+        return b[1].total-a[1].total;
+      });
+
+      const cls=cov=>cov>=70?'badge-green':cov>=30?'badge-amber':'badge-red';
+      const tblRows=arr.map(([sn,v])=>{
+        const collected=v.total-v.purposes['(blank)'];
+        const cov=v.total>0?Math.round(collected/v.total*100):0;
+        const blankBadge=v.total===0
+          ? '<span class="badge badge-red">No loss data</span>'
+          : v.purposes['(blank)']===v.total
+            ? '<span class="badge badge-red">All blank</span>'
+            : v.purposes['(blank)']>0
+              ? '<span class="badge badge-amber">'+fi(v.purposes['(blank)'])+' blank</span>'
+              : '<span class="badge badge-green">All captured</span>';
+        return{cells:[
+          v.total===0?sn:`<span class="clickable" onclick="showStoreModal('${sn.replace(/'/g,"\\'")}')">${sn}</span>`,
+          v.market||'—',v.rm||'—',
+          ...allPurposes.map(p=>{
+            const c=v.purposes[p]||0;
+            return c===0?'<span style="color:var(--muted)">0</span>':`<strong style="color:var(--green)">${fi(c)}</strong>`;
+          }),
+          v.purposes['(blank)']>0?`<strong style="color:var(--amber)">${fi(v.purposes['(blank)'])}</strong>`:'<span style="color:var(--muted)">0</span>',
+          fi(v.total),
+          v.total===0?'<span class="badge badge-red">—</span>':`<span class="badge ${cls(cov)}">${cov}%</span>`,
+          blankBadge
+        ],_cls:(v.total===0||v.purposes['(blank)']===v.total)?'audit-red':v.purposes['(blank)']>0?'audit-amber':''};
+      });
+
+      return`<div class="card">
+        <div class="card-title">🚨 Store × Purpose coverage — stores that aren't collecting Purpose data (Zero = not captured)</div>
+        <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1rem;">
+          <div class="metric"><div class="lbl">Total stores</div><div class="val">${fi(totalStores)}</div></div>
+          <div class="metric red"><div class="lbl">🔴 Not collecting at all</div><div class="val">${fi(zeroStores+allBlankStores)}</div><div class="sub">${zeroStores} no-data · ${allBlankStores} all-blank</div></div>
+          <div class="metric amber"><div class="lbl">🟡 Partial collection</div><div class="val">${fi(arr.filter(([,v])=>v.total>0&&v.purposes['(blank)']>0&&v.purposes['(blank)']<v.total).length)}</div><div class="sub">some blank entries</div></div>
+          <div class="metric green"><div class="lbl">🟢 Full coverage</div><div class="val">${fi(arr.filter(([,v])=>v.total>0&&v.purposes['(blank)']===0).length)}</div><div class="sub">every entry has purpose</div></div>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:.5rem;">Sorted by lowest coverage first. Stores with red rows need immediate staff training on Purpose capture. Click any column header to re-sort.</p>
+        ${sortableTbl(
+          ['Store','Market','RM',...allPurposes,'(blank)','Total entries','Coverage%','Status'],
+          tblRows,
+          (()=>{
+            const totRow=allPurposes.map(p=>fi(arr.reduce((s,[,v])=>s+(v.purposes[p]||0),0)));
+            const totBlank=arr.reduce((s,[,v])=>s+(v.purposes['(blank)']||0),0);
+            const totEntries=arr.reduce((s,[,v])=>s+v.total,0);
+            const overallCov=totEntries>0?Math.round((totEntries-totBlank)/totEntries*100):0;
+            return['Total','','',...totRow,fi(totBlank),fi(totEntries),`<span class="badge ${cls(overallCov)}">${overallCov}%</span>`,''];
+          })(),
+          r=>r._cls
+        )}
+      </div>`;
+    })()}`;
   setTimeout(()=>{makeSortable('purp-cat-tbl');makeSortable('purp-rsn-tbl');},50);
 }
 
