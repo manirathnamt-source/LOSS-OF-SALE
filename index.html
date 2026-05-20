@@ -1175,40 +1175,62 @@ function getWeekRange(weekKey){
   const fmt=d=>d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
   return`${fmt(monday)} – ${fmt(sunday)}`;
 }
+// Mode for the Weekly tab: 'loss' (entries) | 'walkins' | 'both' (side-by-side per cell)
+let _wklyMetric='loss';
+window.setWklyMetric=function(m){_wklyMetric=m;renderWeekly();};
+
 function renderWeekly(){
   const f=getFilters();
-  const rows=filterLS(f); // uses all loss data (date-aware), respecting filters
+  const rows=filterLS(f);
   const{storeIdx}=_LS_IDX;
   const target=document.getElementById('wkly');
-  if(!rows||!rows.length){
-    target.innerHTML=`
-      <div style="background:linear-gradient(135deg,#f5f0ff 0%,#fff 100%);border:1px solid #e0d4f7;border-left:4px solid #6b52d4;border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
-        <div style="font-size:18px;font-weight:600;">📅 Weekly Comparison</div>
-        <div style="font-size:12px;color:var(--muted);">No loss data in current filter selection.</div>
-      </div>`;
-    return;
-  }
-  // Bucket by week
-  const byWeek={};
+
+  // ── Bucket LOSS by week ──
+  const byWeekLoss={};
   rows.forEach(r=>{
-    const dk=r._dk;
-    if(!dk)return;
-    const wk=getWeekKey(dk);
+    const wk=getWeekKey(r._dk);
     if(!wk)return;
-    if(!byWeek[wk])byWeek[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
-    byWeek[wk].total++;
+    if(!byWeekLoss[wk])byWeekLoss[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+    byWeekLoss[wk].total++;
     const rm=r._rm||'Unknown';
-    byWeek[wk].byRM[rm]=(byWeek[wk].byRM[rm]||0)+1;
+    byWeekLoss[wk].byRM[rm]=(byWeekLoss[wk].byRM[rm]||0)+1;
     const wkStore=r._wkStore;
     const cluster=wkStore?wkStore.cluster:'(unsynced)';
     const market=wkStore?wkStore.market:'(unsynced)';
-    byWeek[wk].byCluster[cluster]=(byWeek[wk].byCluster[cluster]||0)+1;
-    byWeek[wk].byMarket[market]=(byWeek[wk].byMarket[market]||0)+1;
+    byWeekLoss[wk].byCluster[cluster]=(byWeekLoss[wk].byCluster[cluster]||0)+1;
+    byWeekLoss[wk].byMarket[market]=(byWeekLoss[wk].byMarket[market]||0)+1;
     const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
-    byWeek[wk].byStore[store]=(byWeek[wk].byStore[store]||0)+1;
+    byWeekLoss[wk].byStore[store]=(byWeekLoss[wk].byStore[store]||0)+1;
   });
-  const weeks=Object.keys(byWeek).sort();
 
+  // ── Bucket WALKINS by week (using filterStores so RM/Cluster/Market/Store filter applies) ──
+  const byWeekWk={};
+  const filtStores=filterStores(_WK.stores,f);
+  filtStores.forEach(s=>{
+    s.days.forEach(d=>{
+      if(!dateInRange(d.dk,f))return;
+      const wk=getWeekKey(d.dk);
+      if(!wk)return;
+      if(!byWeekWk[wk])byWeekWk[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+      byWeekWk[wk].total+=d.w;
+      byWeekWk[wk].byRM[s.rm]=(byWeekWk[wk].byRM[s.rm]||0)+d.w;
+      byWeekWk[wk].byCluster[s.cluster]=(byWeekWk[wk].byCluster[s.cluster]||0)+d.w;
+      byWeekWk[wk].byMarket[s.market]=(byWeekWk[wk].byMarket[s.market]||0)+d.w;
+      byWeekWk[wk].byStore[s.outlet]=(byWeekWk[wk].byStore[s.outlet]||0)+d.w;
+    });
+  });
+
+  // Union of week keys (a week may have walkins but no loss, or vice versa)
+  const weeks=[...new Set([...Object.keys(byWeekLoss),...Object.keys(byWeekWk)])].sort();
+
+  if(!rows.length&&!filtStores.length){
+    target.innerHTML=`
+      <div style="background:linear-gradient(135deg,#f5f0ff 0%,#fff 100%);border:1px solid #e0d4f7;border-left:4px solid #6b52d4;border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
+        <div style="font-size:18px;font-weight:600;">📅 Weekly Comparison</div>
+        <div style="font-size:12px;color:var(--muted);">No data in current filter selection.</div>
+      </div>`;
+    return;
+  }
   if(weeks.length<2){
     target.innerHTML=`
       <div style="background:linear-gradient(135deg,#f5f0ff 0%,#fff 100%);border:1px solid #e0d4f7;border-left:4px solid #6b52d4;border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
@@ -1218,11 +1240,22 @@ function renderWeekly(){
     return;
   }
 
-  const buildRows=(dim)=>{
+  // ── Active dataset based on toggle ──
+  // 'loss'    → byWeekLoss only        (red=increase=bad)
+  // 'walkins' → byWeekWk only          (green=increase=good)
+  // 'both'    → cell shows "L / W" with conv% in WoW column
+  const isLoss=_wklyMetric==='loss';
+  const isWalkin=_wklyMetric==='walkins';
+  const isBoth=_wklyMetric==='both';
+  const byWeek=isLoss?byWeekLoss:isWalkin?byWeekWk:byWeekLoss; // primary; 'both' uses both
+  const metricNoun=isLoss?'loss entries':isWalkin?'walkins':'loss / walkins';
+  const overallIncreaseGood=isWalkin; // for walkin mode, ▲ = good
+
+  const buildRows=(dim,src)=>{
     const allKeys=new Set();
-    weeks.forEach(w=>Object.keys(byWeek[w][dim]).forEach(k=>allKeys.add(k)));
+    weeks.forEach(w=>{if(src[w])Object.keys(src[w][dim]).forEach(k=>allKeys.add(k));});
     return[...allKeys].map(k=>{
-      const counts=weeks.map(w=>byWeek[w][dim][k]||0);
+      const counts=weeks.map(w=>src[w]&&src[w][dim]?src[w][dim][k]||0:0);
       const prev=counts[counts.length-2]||0;
       const curr=counts[counts.length-1]||0;
       const total=counts.reduce((a,b)=>a+b,0);
@@ -1231,14 +1264,66 @@ function renderWeekly(){
       return{key:k,counts,total,prev,curr,wowDelta,wowPct};
     }).filter(r=>r.total>0).sort((a,b)=>b.total-a.total);
   };
-  const wowBadge=(delta,pct)=>{
+  // Badge sign convention: in walkin mode, ▲ is green; in loss mode, ▲ is red
+  const wowBadge=(delta,pct,upGood)=>{
     if(delta===0)return'<span class="badge" style="background:#f0f0f0;color:var(--muted);">→ 0</span>';
-    if(delta>0)return`<span class="badge badge-red">▲ +${delta} (${pct>0?'+':''}${pct}%)</span>`;
-    return`<span class="badge badge-green">▼ ${delta} (${pct}%)</span>`;
+    const isUp=delta>0;
+    const isGood=upGood===isUp;
+    const cls=isGood?'badge-green':'badge-red';
+    const arrow=isUp?'▲ +':'▼ ';
+    return`<span class="badge ${cls}">${arrow}${Math.abs(delta)} (${pct>0?'+':''}${pct}%)</span>`;
   };
 
   const buildTable=(label,dim,clickFn)=>{
-    const dimRows=buildRows(dim);
+    if(isBoth){
+      // Combined view: each week column shows "Loss / Walkin" and adds Conv% (Loss as % of Walkins)
+      const lossRows=buildRows(dim,byWeekLoss);
+      const wkRowsAll=buildRows(dim,byWeekWk);
+      const wkMap=Object.fromEntries(wkRowsAll.map(r=>[r.key,r]));
+      const lossMap=Object.fromEntries(lossRows.map(r=>[r.key,r]));
+      const allKeys=[...new Set([...lossRows.map(r=>r.key),...wkRowsAll.map(r=>r.key)])];
+      if(!allKeys.length)return'';
+      const headers=[label,...weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}<br><span style="font-size:9px;font-weight:500;color:var(--muted);">Loss / Walkins</span></span>`),'Loss total','Walkin total','Loss-cov%','WoW Loss','WoW Walkins'];
+      const tblRows=allKeys.map(k=>{
+        const L=lossMap[k]||{counts:weeks.map(()=>0),total:0,prev:0,curr:0,wowDelta:0,wowPct:0};
+        const W=wkMap[k]||{counts:weeks.map(()=>0),total:0,prev:0,curr:0,wowDelta:0,wowPct:0};
+        const cov=W.total>0?Math.round(L.total/W.total*100):0;
+        return{cells:[
+          clickFn?`<span class="clickable" onclick="${clickFn(k)}">${k}</span>`:`<strong>${k}</strong>`,
+          ...weeks.map((_,i)=>{
+            const l=L.counts[i]||0;const w=W.counts[i]||0;
+            const c=w>0?Math.round(l/w*100):0;
+            return`<span style="font-weight:600;color:var(--red)">${fi(l)}</span> <span style="font-size:10px;color:var(--muted)">/</span> <span style="font-weight:600;color:var(--blue)">${fi(w)}</span><br><span style="font-size:10px;color:${c>=40?'var(--green)':c>=25?'var(--amber)':'var(--red)'};font-weight:600;">${c}%</span>`;
+          }),
+          `<strong style="color:var(--red)">${fi(L.total)}</strong>`,
+          `<strong style="color:var(--blue)">${fi(W.total)}</strong>`,
+          `<span class="badge ${cov>=40?'badge-hi':cov>=25?'badge-mid':'badge-lo'}">${cov}%</span>`,
+          wowBadge(L.wowDelta,L.wowPct,false),
+          wowBadge(W.wowDelta,W.wowPct,true)
+        ]};
+      }).sort((a,b)=>{
+        const aT=parseInt(String(a.cells[allKeys.length+1]).replace(/[^\d]/g,''))||0;
+        const bT=parseInt(String(b.cells[allKeys.length+1]).replace(/[^\d]/g,''))||0;
+        return bT-aT;
+      });
+      const totalsL=weeks.map(w=>byWeekLoss[w]?.total||0);
+      const totalsW=weeks.map(w=>byWeekWk[w]?.total||0);
+      const tL=totalsL.reduce((a,b)=>a+b,0);
+      const tW=totalsW.reduce((a,b)=>a+b,0);
+      const tCov=tW>0?Math.round(tL/tW*100):0;
+      const totFooter=['Total',
+        ...weeks.map((_,i)=>{const c=totalsW[i]>0?Math.round(totalsL[i]/totalsW[i]*100):0;return`<span style="font-weight:700;color:var(--red)">${fi(totalsL[i])}</span> / <span style="font-weight:700;color:var(--blue)">${fi(totalsW[i])}</span><br><span style="font-size:10px;color:${c>=40?'var(--green)':c>=25?'var(--amber)':'var(--red)'};font-weight:600;">${c}%</span>`;}),
+        fi(tL),fi(tW),`<span class="badge ${tCov>=40?'badge-hi':tCov>=25?'badge-mid':'badge-lo'}">${tCov}%</span>`,
+        wowBadge((totalsL[totalsL.length-1]||0)-(totalsL[totalsL.length-2]||0),(totalsL[totalsL.length-2]||0)>0?Math.round(((totalsL[totalsL.length-1]||0)-(totalsL[totalsL.length-2]||0))/(totalsL[totalsL.length-2]||0)*100):0,false),
+        wowBadge((totalsW[totalsW.length-1]||0)-(totalsW[totalsW.length-2]||0),(totalsW[totalsW.length-2]||0)>0?Math.round(((totalsW[totalsW.length-1]||0)-(totalsW[totalsW.length-2]||0))/(totalsW[totalsW.length-2]||0)*100):0,true)
+      ];
+      return`<div class="card"><div class="card-title">By ${label.toLowerCase()} (${allKeys.length}) — Loss / Walkins side-by-side with conversion %</div>
+        ${sortableTbl(headers,tblRows,totFooter)}
+      </div>`;
+    }
+    // Single-metric view (loss or walkin)
+    const src=isLoss?byWeekLoss:byWeekWk;
+    const dimRows=buildRows(dim,src);
     if(!dimRows.length)return'';
     const headers=[label,...weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}</span>`),'Total','WoW Δ (last vs prev)'];
     const tblRows=dimRows.map(r=>({
@@ -1246,34 +1331,59 @@ function renderWeekly(){
         clickFn?`<span class="clickable" onclick="${clickFn(r.key)}">${r.key}</span>`:`<strong>${r.key}</strong>`,
         ...r.counts.map(c=>fi(c)),
         `<strong>${fi(r.total)}</strong>`,
-        wowBadge(r.wowDelta,r.wowPct)
+        wowBadge(r.wowDelta,r.wowPct,overallIncreaseGood)
       ]
     }));
-    const totals=weeks.map(w=>byWeek[w].total);
-    const totFooter=['Total',...totals.map(c=>fi(c)),fi(totals.reduce((a,b)=>a+b,0)),wowBadge(totals[totals.length-1]-totals[totals.length-2],totals[totals.length-2]>0?Math.round((totals[totals.length-1]-totals[totals.length-2])/totals[totals.length-2]*100):0)];
+    const totals=weeks.map(w=>src[w]?.total||0);
+    const totFooter=['Total',...totals.map(c=>fi(c)),fi(totals.reduce((a,b)=>a+b,0)),wowBadge(totals[totals.length-1]-totals[totals.length-2],totals[totals.length-2]>0?Math.round((totals[totals.length-1]-totals[totals.length-2])/totals[totals.length-2]*100):0,overallIncreaseGood)];
     return`<div class="card"><div class="card-title">By ${label.toLowerCase()} (${dimRows.length})</div>
       ${sortableTbl(headers,tblRows,totFooter)}
     </div>`;
   };
 
-  // Top-line metrics
-  const totalAll=weeks.reduce((s,w)=>s+byWeek[w].total,0);
-  const lastWk=byWeek[weeks[weeks.length-1]].total;
-  const prevWk=byWeek[weeks[weeks.length-2]].total;
-  const overallDelta=lastWk-prevWk;
-  const overallPct=prevWk>0?Math.round((lastWk-prevWk)/prevWk*100):(lastWk>0?100:0);
+  // Top-line metrics — use whichever metric is selected (or both for the 'both' mode)
+  const totalAllLoss=weeks.reduce((s,w)=>s+(byWeekLoss[w]?.total||0),0);
+  const totalAllWk=weeks.reduce((s,w)=>s+(byWeekWk[w]?.total||0),0);
+  const lastWkLoss=byWeekLoss[weeks[weeks.length-1]]?.total||0;
+  const prevWkLoss=byWeekLoss[weeks[weeks.length-2]]?.total||0;
+  const lastWkWk=byWeekWk[weeks[weeks.length-1]]?.total||0;
+  const prevWkWk=byWeekWk[weeks[weeks.length-2]]?.total||0;
+  const dLoss=lastWkLoss-prevWkLoss;
+  const dWk=lastWkWk-prevWkWk;
+  const pLoss=prevWkLoss>0?Math.round(dLoss/prevWkLoss*100):(lastWkLoss>0?100:0);
+  const pWk=prevWkWk>0?Math.round(dWk/prevWkWk*100):(lastWkWk>0?100:0);
+
+  const segBtn=(mode,label,emoji)=>`<button class="filter-btn" onclick="setWklyMetric('${mode}')" style="border:0;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;background:${_wklyMetric===mode?'var(--blue)':'var(--surface)'};color:${_wklyMetric===mode?'#fff':'var(--muted)'};border-radius:0;">${emoji} ${label}</button>`;
 
   target.innerHTML=`
-    <div style="background:linear-gradient(135deg,#f5f0ff 0%,#fff 100%);border:1px solid #e0d4f7;border-left:4px solid #6b52d4;border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
+    <div style="background:linear-gradient(135deg,#f5f0ff 0%,#fff 100%);border:1px solid #e0d4f7;border-left:4px solid #6b52d4;border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
       <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">📅 Weekly Comparison</div>
-      <div style="font-size:12px;color:var(--muted);">Loss of sale entries collected per ISO week (Mon–Sun). <strong>▲ red</strong> = increase (more loss), <strong>▼ green</strong> = decrease.</div>
+      <div style="font-size:12px;color:var(--muted);">Per ISO week (Mon–Sun). In <strong>Loss</strong> mode ▲ red = more loss (bad). In <strong>Walkins</strong> mode ▲ green = more footfall (good). Pick <strong>Both</strong> to see Loss / Walkins side-by-side with conversion %.</div>
+    </div>
+
+    <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:1rem;">
+      ${segBtn('loss','Loss entries','📊')}
+      <div style="width:1px;background:var(--border);"></div>
+      ${segBtn('walkins','Walkins','👣')}
+      <div style="width:1px;background:var(--border);"></div>
+      ${segBtn('both','Both (Loss / Walkins)','🔀')}
     </div>
 
     <div class="metrics" style="margin-bottom:1.25rem;">
       <div class="metric"><div class="lbl">Weeks loaded</div><div class="val">${weeks.length}</div><div class="sub">${getWeekRange(weeks[0])} → ${getWeekRange(weeks[weeks.length-1])}</div></div>
-      <div class="metric red"><div class="lbl">Total entries (all weeks)</div><div class="val">${fi(totalAll)}</div></div>
-      <div class="metric"><div class="lbl">Latest week</div><div class="val">${fi(lastWk)}</div><div class="sub">${getWeekRange(weeks[weeks.length-1])}</div></div>
-      <div class="metric ${overallDelta>0?'red':overallDelta<0?'green':''}"><div class="lbl">Δ vs previous week</div><div class="val">${overallDelta>0?'+':''}${fi(overallDelta)}</div><div class="sub">${overallPct>0?'+':''}${overallPct}% ${overallDelta>0?'increase':overallDelta<0?'decrease':'no change'}</div></div>
+      ${isWalkin?`
+        <div class="metric blue"><div class="lbl">Total walkins (all weeks)</div><div class="val">${fi(totalAllWk)}</div></div>
+        <div class="metric"><div class="lbl">Latest week walkins</div><div class="val">${fi(lastWkWk)}</div><div class="sub">${getWeekRange(weeks[weeks.length-1])}</div></div>
+        <div class="metric ${dWk>0?'green':dWk<0?'red':''}"><div class="lbl">Δ walkins vs previous</div><div class="val">${dWk>0?'+':''}${fi(dWk)}</div><div class="sub">${pWk>0?'+':''}${pWk}% ${dWk>0?'more footfall':dWk<0?'less footfall':'no change'}</div></div>
+      `:isLoss?`
+        <div class="metric red"><div class="lbl">Total loss entries</div><div class="val">${fi(totalAllLoss)}</div></div>
+        <div class="metric"><div class="lbl">Latest week loss</div><div class="val">${fi(lastWkLoss)}</div><div class="sub">${getWeekRange(weeks[weeks.length-1])}</div></div>
+        <div class="metric ${dLoss>0?'red':dLoss<0?'green':''}"><div class="lbl">Δ loss vs previous</div><div class="val">${dLoss>0?'+':''}${fi(dLoss)}</div><div class="sub">${pLoss>0?'+':''}${pLoss}% ${dLoss>0?'more loss':dLoss<0?'less loss':'no change'}</div></div>
+      `:`
+        <div class="metric red"><div class="lbl">Latest loss</div><div class="val">${fi(lastWkLoss)}</div><div class="sub">${dLoss>0?'+':''}${pLoss}% vs prev</div></div>
+        <div class="metric blue"><div class="lbl">Latest walkins</div><div class="val">${fi(lastWkWk)}</div><div class="sub">${dWk>0?'+':''}${pWk}% vs prev</div></div>
+        <div class="metric amber"><div class="lbl">Loss-cov% latest</div><div class="val">${lastWkWk>0?Math.round(lastWkLoss/lastWkWk*100):0}%</div><div class="sub">loss as % of walkins</div></div>
+      `}
     </div>
 
     ${buildTable('Market','byMarket',null)}
