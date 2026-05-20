@@ -643,6 +643,29 @@ function parseLoss(headers,rows){
     valIdx:    findCol('value','amount','loss value','price'),
     purposeIdx: findCol('purpose','occasion','intent','reason for visit'), // col T — purpose of visit
   };
+  // ── FALLBACK: if Purpose column wasn't found via header, scan rows for Purpose-like values.
+  // Handles the case where one month's tab has the column but its header didn't survive the merge.
+  if(_LS_IDX.purposeIdx<0){
+    const PURPOSE_HINTS=['self use','self','gift','wedding','engagement','personal','investment','daily wear','occasion','party','ceremony','festival','marriage','birthday','anniversary','return gift','collection'];
+    const used=new Set(Object.values(_LS_IDX).filter(v=>v>=0));
+    const sampleCap=Math.min(rows.length,5000);
+    const ncols=Math.max(...rows.slice(0,Math.min(rows.length,200)).map(r=>r?.length||0),0);
+    let bestIdx=-1,bestScore=0;
+    for(let c=0;c<ncols;c++){
+      if(used.has(c))continue;
+      let score=0;
+      for(let i=0;i<sampleCap;i++){
+        const v=String(rows[i]?.[c]||'').toLowerCase().trim();
+        if(!v)continue;
+        if(PURPOSE_HINTS.some(h=>v===h||v.includes(h)))score++;
+      }
+      if(score>bestScore){bestScore=score;bestIdx=c;}
+    }
+    if(bestScore>=5){
+      _LS_IDX.purposeIdx=bestIdx;
+      console.log('[parseLoss] Purpose column auto-detected at col',bestIdx,'(score:',bestScore,'· scanned',sampleCap,'rows)');
+    }
+  }
   console.log('[parseLoss] columns detected:',_LS_IDX,'· headers count=',headers.length,'rows=',rows.length);
   const{dateIdx,storeIdx,phoneIdx,timingIdx}=_LS_IDX;
   const wkDayKeys=new Set(_WK.days.map(d=>d.dk));
@@ -5293,7 +5316,13 @@ function mergeMonths(keys){
     });
     // Merge LS rows
     allLSRows.push(...(d.lsRows||[]));
-    if((d.lsHeaders||[]).length>(lsHeaders||[]).length)lsHeaders=d.lsHeaders;
+    // Pick headers with the MOST NAMED columns (non-empty strings). If tied, pick the
+    // longer array. This handles the case where APR's last column has an empty header
+    // but MAY has "Purpose" there — without this, the merge would silently drop the
+    // Purpose column name.
+    const namedNew=(d.lsHeaders||[]).filter(h=>String(h||'').trim()).length;
+    const namedCur=(lsHeaders||[]).filter(h=>String(h||'').trim()).length;
+    if(namedNew>namedCur||(namedNew===namedCur&&(d.lsHeaders||[]).length>(lsHeaders||[]).length))lsHeaders=d.lsHeaders;
   });
 
   const stores=Object.values(storeMap);
