@@ -3916,7 +3916,153 @@ function renderAudit(){
   window._auditTables=auditTables;
   if(!window._activeAudit)window._activeAudit='coverage';
 
-  document.getElementById('audit').innerHTML=`
+  // ═══════════════════════════════════════════════════════════════════
+  // PROCESS ADHERENCE REPORT — one-shot summary of everything
+  // For each store, score 5 checkpoints (Walkin entry, Loss capture,
+  // Purpose capture, Phone quality, Reason diversity) red/amber/green,
+  // plus an Overall rollup (worst-of). Sorted critical-first.
+  // ═══════════════════════════════════════════════════════════════════
+  const purposeIdxA=_LS_IDX.purposeIdx;
+  const adherence=filtStores.map(s=>{
+    const dRange=daysInRange(s.days,f);
+    const w=dRange.reduce((a,d)=>a+d.w,0);
+    const b=dRange.reduce((a,d)=>a+d.b,0);
+    const nb=w-b;
+    const daysWith=dRange.filter(d=>d.w>0).length;
+    const totalDays=dRange.length;
+    const lsRows=filtLS.filter(r=>normStore(String(r[storeIdx]||''))===s.outletNorm);
+    const ls=lsRows.length;
+    const cov=nb>0?pct(ls,nb):(ls>0?100:0);
+    const validPh=lsRows.filter(r=>r._mob==='valid').length;
+    const phPct=ls>0?pct(validPh,ls):0;
+    const reasonSet=new Set(lsRows.map(r=>reasonIdx>=0?String(r[reasonIdx]||'').trim():'').filter(Boolean));
+    const withPurpose=purposeIdxA>=0?lsRows.filter(r=>String(r[purposeIdxA]||'').trim()).length:0;
+    const purpPct=ls>0?pct(withPurpose,ls):0;
+
+    // Per-checkpoint status (red / amber / green / na)
+    const walkinStatus =totalDays===0?'na':(w===0||daysWith===0)?'red':daysWith>=Math.ceil(totalDays*0.8)?'green':'amber';
+    const lossStatus   =(nb<=10&&ls===0)?'na':cov>=50?'green':cov>=25?'amber':'red';
+    const purposeStatus=purposeIdxA<0?'na':ls===0?'na':purpPct>=70?'green':purpPct>=30?'amber':'red';
+    const phoneStatus  =ls===0?'na':phPct>=90?'green':phPct>=70?'amber':'red';
+    const reasonStatus =ls===0?'na':reasonSet.size>=4?'green':reasonSet.size>=2?'amber':'red';
+
+    const scores=[walkinStatus,lossStatus,purposeStatus,phoneStatus,reasonStatus].filter(x=>x!=='na');
+    const overall=scores.includes('red')?'red':scores.includes('amber')?'amber':scores.length?'green':'na';
+
+    const issues=[];
+    if(walkinStatus==='red')issues.push('🚫 No walkins entered');
+    else if(walkinStatus==='amber')issues.push(`📅 ${daysWith}/${totalDays} days only`);
+    if(lossStatus==='red')issues.push(`📉 Loss-cov ${cov}%`);
+    else if(lossStatus==='amber')issues.push(`📉 Loss-cov ${cov}%`);
+    if(purposeStatus==='red')issues.push(purpPct===0?'🎯 No purpose captured':`🎯 Purpose ${purpPct}%`);
+    else if(purposeStatus==='amber')issues.push(`🎯 Purpose ${purpPct}%`);
+    if(phoneStatus==='red')issues.push(`📱 Valid phone ${phPct}%`);
+    else if(phoneStatus==='amber')issues.push(`📱 Valid phone ${phPct}%`);
+    if(reasonStatus==='red')issues.push('🔁 1 reason only');
+    else if(reasonStatus==='amber')issues.push(`🔁 ${reasonSet.size} reasons`);
+
+    return{s,w,b,nb,ls,cov,daysWith,totalDays,phPct,reasonCount:reasonSet.size,purpPct,withPurpose,walkinStatus,lossStatus,purposeStatus,phoneStatus,reasonStatus,overall,issues};
+  });
+  // Sort: critical (red) first, then amber, then green
+  const _stOrd={red:0,amber:1,green:2,na:3};
+  adherence.sort((a,b)=>_stOrd[a.overall]-_stOrd[b.overall]||(a.s.outlet>b.s.outlet?1:-1));
+
+  // Per-checkpoint summary counts
+  const summarize=(field)=>({
+    red:adherence.filter(a=>a[field]==='red').length,
+    amber:adherence.filter(a=>a[field]==='amber').length,
+    green:adherence.filter(a=>a[field]==='green').length,
+    na:adherence.filter(a=>a[field]==='na').length
+  });
+  const sumOverall=summarize('overall');
+  const sumWalkin=summarize('walkinStatus');
+  const sumLoss=summarize('lossStatus');
+  const sumPurpose=summarize('purposeStatus');
+  const sumPhone=summarize('phoneStatus');
+  const sumReason=summarize('reasonStatus');
+
+  const stBadge=(status,label)=>{
+    if(status==='red')return `<span class="badge badge-red">🔴 ${label}</span>`;
+    if(status==='amber')return `<span class="badge badge-amber">🟡 ${label}</span>`;
+    if(status==='green')return `<span class="badge badge-green">🟢 ${label}</span>`;
+    return `<span class="badge" style="background:#f0f0f0;color:var(--muted);">— n/a</span>`;
+  };
+
+  const adherenceTblRows=adherence.map(a=>({
+    cells:[
+      `<span class="clickable" onclick="showStoreModal('${a.s.outlet.replace(/'/g,"\\'")}')">${a.s.outlet}</span>`,
+      a.s.market||'—',
+      a.s.rm||'—',
+      stBadge(a.walkinStatus,a.walkinStatus==='na'?'n/a':a.walkinStatus==='red'?'No':a.walkinStatus==='green'?'OK':`${a.daysWith}/${a.totalDays}`),
+      stBadge(a.lossStatus,a.lossStatus==='na'?'n/a':a.cov+'%'),
+      stBadge(a.purposeStatus,a.purposeStatus==='na'?'n/a':a.purpPct+'%'),
+      stBadge(a.phoneStatus,a.phoneStatus==='na'?'n/a':a.phPct+'%'),
+      stBadge(a.reasonStatus,a.reasonStatus==='na'?'n/a':a.reasonCount+''),
+      stBadge(a.overall,a.overall==='red'?'Critical':a.overall==='amber'?'Watch':a.overall==='green'?'Compliant':'n/a'),
+      a.issues.length?`<span style="font-size:11px;">${a.issues.join(' · ')}</span>`:'<span style="color:var(--green);font-size:11px;">✓ all green</span>'
+    ],
+    _cls:a.overall==='red'?'audit-red':a.overall==='amber'?'audit-amber':''
+  }));
+
+  const cpTile=(emoji,label,sum,unit)=>`
+    <div class="metric" style="border-left:4px solid ${sum.red>0?'var(--red)':sum.amber>0?'var(--amber)':'var(--green)'};">
+      <div class="lbl">${emoji} ${label}</div>
+      <div style="display:flex;gap:6px;align-items:baseline;font-weight:600;font-size:14px;margin-top:6px;">
+        <span style="color:var(--red);">🔴 ${sum.red}</span>
+        <span style="color:var(--amber);">🟡 ${sum.amber}</span>
+        <span style="color:var(--green);">🟢 ${sum.green}</span>
+        ${sum.na?`<span style="color:var(--muted);">— ${sum.na}</span>`:''}
+      </div>
+      <div class="sub">${unit}</div>
+    </div>`;
+
+  const adherenceBlock=`
+    <div style="background:linear-gradient(135deg,#fff5e6 0%,#fff 100%);border:1px solid #f0d68a;border-left:4px solid var(--amber);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">📋 Process Adherence Report</div>
+      <div style="font-size:12px;color:var(--muted);">One-shot health check across every store. Five checkpoints scored ${'<strong style="color:var(--red)">🔴 red</strong>'} / ${'<strong style="color:var(--amber)">🟡 amber</strong>'} / ${'<strong style="color:var(--green)">🟢 green</strong>'}. Overall is the worst-of. Sorted critical first.</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:.75rem;">
+      <div style="background:#fdeaea;border:1px solid #fbc7c7;border-radius:10px;padding:12px 16px;text-align:center;">
+        <div style="font-size:11px;font-weight:600;color:var(--red);text-transform:uppercase;margin-bottom:4px;">🔴 Critical</div>
+        <div style="font-size:28px;font-weight:600;color:var(--red);">${fi(sumOverall.red)}</div>
+        <div style="font-size:11px;color:var(--muted);">stores · immediate intervention needed</div>
+      </div>
+      <div style="background:#fff8e6;border:1px solid #f0d68a;border-radius:10px;padding:12px 16px;text-align:center;">
+        <div style="font-size:11px;font-weight:600;color:var(--amber);text-transform:uppercase;margin-bottom:4px;">🟡 Watch</div>
+        <div style="font-size:28px;font-weight:600;color:var(--amber);">${fi(sumOverall.amber)}</div>
+        <div style="font-size:11px;color:var(--muted);">stores · partial gaps, coachable</div>
+      </div>
+      <div style="background:#e6f5ee;border:1px solid #b8e0cc;border-radius:10px;padding:12px 16px;text-align:center;">
+        <div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;margin-bottom:4px;">🟢 Compliant</div>
+        <div style="font-size:28px;font-weight:600;color:var(--green);">${fi(sumOverall.green)}</div>
+        <div style="font-size:11px;color:var(--muted);">stores · all checkpoints clean</div>
+      </div>
+    </div>
+
+    <div class="metrics" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:1rem;">
+      ${cpTile('👣','Walkin entry',sumWalkin,'all days covered')}
+      ${cpTile('📉','Loss capture',sumLoss,'≥50% of non-buyers')}
+      ${cpTile('🎯','Purpose capture',sumPurpose,'≥70% have purpose')}
+      ${cpTile('📱','Phone quality',sumPhone,'≥90% valid numbers')}
+      ${cpTile('🔁','Reason diversity',sumReason,'≥4 distinct reasons')}
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 Per-store adherence — click store for full detail</div>
+      ${sortableTbl(
+        ['Store','Market','RM','Walkin','Loss capture','Purpose','Phone','Reason','Overall','Issues'],
+        adherenceTblRows,
+        null,
+        r=>r._cls
+      )}
+    </div>
+
+    <div style="background:#f8f9fb;border:1px solid var(--border);border-radius:10px;padding:6px 14px;margin-top:1.5rem;margin-bottom:.5rem;">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">🔍 Detail drilldowns — pick a category below</div>
+    </div>`;
+
+  document.getElementById('audit').innerHTML=adherenceBlock+`
     <div class="metrics" style="cursor:pointer;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
       <div class="metric red audit-card" id="ac-coverage" onclick="selectAudit('coverage')" style="transition:all .15s;">
         <div class="lbl">🔴 Coverage critical</div><div class="val">${covCritical}</div><div class="sub">stores &lt;10% coverage · click to view</div>
