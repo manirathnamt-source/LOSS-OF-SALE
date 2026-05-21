@@ -633,6 +633,10 @@ function parseLoss(headers,rows){
     subReasonIdx: subReasonIdxA, // col J — specific reason. -1 if not present.
     catIdx:    findCol('category','cat','dept','group','segment'),
     notesIdx:  findCol('customer notes','notes','remarks'),
+    // Detect TWO note columns separately so the Notes & Patterns audit can read both.
+    // custNotesIdx → "Customer Notes" (col L). notes2Idx → a separate "Notes" (col S).
+    custNotesIdx: findCol('customer notes','cust notes'),
+    notes2Idx: (()=>{const found=lh.findIndex((h,i)=>h==='notes'||h==='remarks');return found;})(),
     subCatIdx: findCol('product sub category','sub category','subcategory'),
     sizeIdx:   findCol('size'),
     styleIdx:  findCol('style'),
@@ -3906,12 +3910,108 @@ function renderAudit(){
   const mobCritical=storeAudit.filter(s=>s.mobPct>50&&s.ls>0).length;
   const repCritical=storeAudit.filter(s=>s.topReasonPct>=70&&s.ls>0).length;
 
+  // ── NOTES & PATTERNS ───────────────────────────────────
+  // Extract recurring phrases (1-3 word n-grams) from Customer Notes + Notes
+  // columns. Surface each phrase with the top values seen for color/size/style/
+  // polish/design# in the rows where the phrase appeared. Also list repeated
+  // design numbers separately so "X customers requested the same design" is visible.
+  const {custNotesIdx,notes2Idx,colorIdx:_colIdx,sizeIdx:_szIdx,styleIdx:_stIdx,polishIdx:_polIdx,designIdx:_dnIdx}=_LS_IDX;
+  const noteCols=[custNotesIdx,notes2Idx].filter(v=>v>=0&&v!==undefined);
+  const STOP_NOTES=new Set(['the','of','and','in','on','for','to','a','an','is','are','with','our','my','your','i','no','not','by','at','this','that','was','it','be','have','has','as','from','but','or','if','do','does','did','can','will','want','wanted','need','needed','looking','look','please','customer','cust','rs','some','more','same','also','any','all','one','two','should','would','only','told','said','asked','came','went','dont','don','they','them','their','her','his','she','he','were','been','wants','request','requested','show','showed','will','than','then','when','where','which','what','who','why','how','here','there','very','just','too','out','up','down','off','about','into','over','under','again','still','now','already','too','much','many','few','little','first','last','next','old','new']);
+  const SIZE_PAT=/^\d+(\.\d+|[-–]\d+(\.\d+)?)?$/;
+  function tokenizeNotes(text){
+    return String(text||'')
+      .toLowerCase()
+      .replace(/[^a-z0-9.\-]+/g,' ')
+      .split(/\s+/)
+      .filter(t=>t&&!STOP_NOTES.has(t)&&(t.length>=3||SIZE_PAT.test(t)));
+  }
+  const phraseRowIdx={};
+  if(noteCols.length){
+    filtLS.forEach((r,idx)=>{
+      const text=noteCols.map(c=>String(r[c]||'')).join(' | ');
+      if(!text.trim())return;
+      const toks=tokenizeNotes(text);
+      const phrases=new Set();
+      // Unigrams: only meaningful tokens (≥4 chars, or matches size pattern)
+      toks.forEach(t=>{if(t.length>=4||SIZE_PAT.test(t))phrases.add(t);});
+      for(let i=0;i<toks.length-1;i++)phrases.add(toks[i]+' '+toks[i+1]);
+      for(let i=0;i<toks.length-2;i++)phrases.add(toks[i]+' '+toks[i+1]+' '+toks[i+2]);
+      phrases.forEach(p=>{if(!phraseRowIdx[p])phraseRowIdx[p]=[];phraseRowIdx[p].push(idx);});
+    });
+  }
+  const topPhrases=Object.entries(phraseRowIdx).filter(([,arr])=>arr.length>=3).sort((a,b)=>b[1].length-a[1].length).slice(0,40);
+
+  const _topOf2=m=>Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,c])=>`${k} (${c})`).join(', ');
+  const _aggCol=(rows,ix)=>{
+    if(ix<0||ix===undefined)return '<span style="color:var(--muted)">—</span>';
+    const m={};rows.forEach(r=>{const v=String(r[ix]||'').trim();if(v&&v!=='-')m[v]=(m[v]||0)+1;});
+    return _topOf2(m)||'<span style="color:var(--muted)">—</span>';
+  };
+
+  const phraseTblRows=topPhrases.map(([phrase,idxs])=>{
+    const rows=idxs.map(i=>filtLS[i]);
+    const stores=new Set(rows.map(r=>String(r[storeIdx]||'')).filter(Boolean)).size;
+    return{cells:[
+      `<strong>${phrase}</strong>`,
+      fi(idxs.length),
+      fi(stores),
+      _aggCol(rows,_colIdx),
+      _aggCol(rows,_szIdx),
+      _aggCol(rows,_stIdx),
+      _aggCol(rows,_polIdx),
+      _aggCol(rows,_dnIdx)
+    ]};
+  });
+
+  // Repeated design numbers (independent of notes columns)
+  const designReqMap={};
+  if(_dnIdx>=0){
+    filtLS.forEach((r,idx)=>{
+      const d=String(r[_dnIdx]||'').trim();
+      if(!d||d==='-'||d.length<3)return;
+      if(!designReqMap[d])designReqMap[d]={c:0,rowIdxs:[]};
+      designReqMap[d].c++;
+      designReqMap[d].rowIdxs.push(idx);
+    });
+  }
+  const topDesigns=Object.entries(designReqMap).filter(([,v])=>v.c>=2).sort((a,b)=>b[1].c-a[1].c).slice(0,40);
+  const designTblRows=topDesigns.map(([dn,v])=>{
+    const rows=v.rowIdxs.map(i=>filtLS[i]);
+    const stores=new Set(rows.map(r=>String(r[storeIdx]||'')).filter(Boolean)).size;
+    let sampleNote='—';
+    for(const r of rows){for(const c of noteCols){const t=String(r[c]||'').trim();if(t){sampleNote=t.length>60?t.slice(0,60)+'…':t;break;}}if(sampleNote!=='—')break;}
+    return{cells:[
+      `<strong>${dn}</strong>`,
+      fi(v.c),
+      fi(stores),
+      _aggCol(rows,_colIdx),
+      _aggCol(rows,_szIdx),
+      _aggCol(rows,_stIdx),
+      _aggCol(rows,_polIdx),
+      `<span style="font-size:11px;color:var(--muted);">${sampleNote}</span>`
+    ]};
+  });
+
+  const notesHtml=`
+    <p style="font-size:11px;color:var(--muted);margin:0 0 10px 0;">
+      📋 Recurring phrases extracted from <strong>Customer Notes</strong> + <strong>Notes</strong> columns (1-3 word phrases, stop-words filtered, ≥3 mentions). Repeated design numbers tracked separately. Each row shows the top 2 values of each attribute among the rows where that phrase appeared.
+    </p>
+    ${noteCols.length===0?'<div class="err-card" style="margin-bottom:1rem;">⚠️ Neither <code>Customer Notes</code> nor <code>Notes</code> column detected in the sheet. Add either column to surface phrase patterns here.</div>':''}
+    <div class="section-lbl">🔤 Top recurring phrases — keywords from notes (e.g., "size 2-2", "long hara", "antique")</div>
+    ${phraseTblRows.length?sortableTbl(['Phrase / keyword','Mentions','Stores','Top color(s)','Top size(s)','Top style(s)','Top polish(es)','Top design#'],phraseTblRows,null):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No recurring phrases found (need ≥3 mentions across notes).</p>'}
+    <div class="section-lbl" style="margin-top:1.25rem;">🔁 Repeated design numbers — same design# requested ≥2 times</div>
+    ${designTblRows.length?sortableTbl(['Design #','Requests','Stores','Top color(s)','Top size(s)','Top style(s)','Top polish(es)','Sample note'],designTblRows,null):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No design numbers repeated, or column not detected.</p>'}
+  `;
+  const notesAlertCount=topPhrases.length+topDesigns.length;
+
   const auditTables={
     coverage:{title:'🔴 Non-buyer coverage gaps — sorted worst first',html:sortableTbl(['Store','Market','RM','Non-buyers','Loss captured','Coverage%','Status'],covRows,null,r=>r._cls)},
     mobile:{title:'📱 Phone number quality — market-level (click market → RM → store)',html:phoneMktRows.length?sortableTbl(['Market','RMs','Stores','Total entries','Invalid/Missing','Bad%','Status'],phoneMktRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No phone data found.</p>'},
     reason:{title:'🔁 Stores with repetitive loss reasons (same reason >50%)',html:repRows.length?sortableTbl(['Store','Market','RM','Top reason','Loss entries','Repeat%','Status'],repRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No stores with repetitive reasons found.</p>'},
     product:{title:'🏷️ Most repeated product issues',html:prodRows.length?sortableTbl(['Product details','Count','Stores affected','Top reason','Alert'],prodRows,null,r=>r._cls):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No product data found.</p>'},
-    abnormal:{title:`⚠️ Abnormal / notify-worthy reasons (col J) — ${abnCriticalCount} whitelisted · ${abnRareCount} rare (<2%)`,html:abnTblRows.length?`<p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">🔴 <strong>Whitelisted</strong> = always flagged (e.g., "Found cheaper online", "Polish not available"). 🟡 <strong>Rare</strong> = under 2% share, may indicate data entry issues or new edge cases. Click any reason to see store-wise breakdown.</p>${sortableTbl(['Abnormal reason','Count','Stores','RMs','Markets','Share%','Flag'],abnTblRows,null,r=>r._cls)}`:'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No abnormal reasons detected in current filter.</p>'}
+    abnormal:{title:`⚠️ Abnormal / notify-worthy reasons (col J) — ${abnCriticalCount} whitelisted · ${abnRareCount} rare (<2%)`,html:abnTblRows.length?`<p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">🔴 <strong>Whitelisted</strong> = always flagged (e.g., "Found cheaper online", "Polish not available"). 🟡 <strong>Rare</strong> = under 2% share, may indicate data entry issues or new edge cases. Click any reason to see store-wise breakdown.</p>${sortableTbl(['Abnormal reason','Count','Stores','RMs','Markets','Share%','Flag'],abnTblRows,null,r=>r._cls)}`:'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No abnormal reasons detected in current filter.</p>'},
+    notes:{title:`📝 Notes & patterns — ${topPhrases.length} recurring phrases · ${topDesigns.length} repeated design#s`,html:notesHtml}
   };
   window._auditTables=auditTables;
   if(!window._activeAudit)window._activeAudit='coverage';
@@ -4079,6 +4179,9 @@ function renderAudit(){
       <div class="metric red audit-card" id="ac-abnormal" onclick="selectAudit('abnormal')" style="transition:all .15s;">
         <div class="lbl">⚠️ Abnormal reasons</div><div class="val">${abnCriticalCount+abnRareCount}</div><div class="sub">${abnCriticalCount} notify · ${abnRareCount} rare · click to view</div>
       </div>
+      <div class="metric amber audit-card" id="ac-notes" onclick="selectAudit('notes')" style="transition:all .15s;">
+        <div class="lbl">📝 Notes patterns</div><div class="val">${notesAlertCount}</div><div class="sub">${topPhrases.length} phrases · ${topDesigns.length} design# repeats</div>
+      </div>
     </div>
     <div class="audit-legend">
       <span><span class="leg-red"></span> Red = Critical / immediate action</span>
@@ -4094,7 +4197,7 @@ function renderAudit(){
 window.selectAudit=function(key){
   window._activeAudit=key;
   const t=window._auditTables;if(!t)return;
-  ['coverage','mobile','reason','product','abnormal'].forEach(k=>{
+  ['coverage','mobile','reason','product','abnormal','notes'].forEach(k=>{
     const el=document.getElementById('ac-'+k);if(!el)return;
     const isRed=k==='coverage'||k==='mobile'||k==='abnormal';
     if(k===key){el.style.border=`2px solid ${isRed?'var(--red)':'var(--amber)'}`;el.style.boxShadow=`0 0 0 3px ${isRed?'rgba(196,48,48,0.15)':'rgba(196,122,15,0.15)'}`;el.style.transform='translateY(-2px)';}
