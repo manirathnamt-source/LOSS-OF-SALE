@@ -3993,12 +3993,107 @@ function renderAudit(){
     ]};
   });
 
+  // Per-store narrative summary — forum/chat style
+  // Group filtLS by store, run the same n-gram tokenization on each store's
+  // notes rows, then produce: headline sentence with top phrase + secondary
+  // bullets. Sorted by loss-entry volume desc, top 30 stores.
+  const _storeRows={};
+  if(storeIdx>=0){
+    filtLS.forEach(r=>{
+      const sn=String(r[storeIdx]||'').trim();
+      if(!sn)return;
+      if(!_storeRows[sn])_storeRows[sn]=[];
+      _storeRows[sn].push(r);
+    });
+  }
+  function _phrasesForRows(rows){
+    const pri={};
+    rows.forEach((r,i)=>{
+      if(!noteCols.length)return;
+      const text=noteCols.map(c=>String(r[c]||'')).join(' | ');
+      if(!text.trim())return;
+      const toks=tokenizeNotes(text);
+      const phrases=new Set();
+      toks.forEach(t=>{if(t.length>=4||SIZE_PAT.test(t))phrases.add(t);});
+      for(let i=0;i<toks.length-1;i++)phrases.add(toks[i]+' '+toks[i+1]);
+      for(let i=0;i<toks.length-2;i++)phrases.add(toks[i]+' '+toks[i+1]+' '+toks[i+2]);
+      phrases.forEach(p=>{if(!pri[p])pri[p]=[];pri[p].push(i);});
+    });
+    return Object.entries(pri).filter(([,arr])=>arr.length>=2).sort((a,b)=>b[1].length-a[1].length);
+  }
+  function _ctxBits(rows){
+    const bits=[];
+    const _ag=ix=>{
+      if(ix<0||ix===undefined)return null;
+      const m={};rows.forEach(r=>{const v=String(r[ix]||'').trim();if(v&&v!=='-')m[v]=(m[v]||0)+1;});
+      const top=Object.entries(m).sort((a,b)=>b[1]-a[1])[0];
+      return top?top[0]:null;
+    };
+    const cat=_LS_IDX.catIdx>=0?_ag(_LS_IDX.catIdx):null;
+    const style=_ag(_stIdx);
+    const size=_ag(_szIdx);
+    const polish=_ag(_polIdx);
+    if(cat)bits.push(`mostly <strong>${cat}</strong>`);
+    if(style)bits.push(`style <strong>${style}</strong>`);
+    if(size)bits.push(`size <strong>${size}</strong>`);
+    if(polish)bits.push(`polish <strong>${polish}</strong>`);
+    return bits.length?` — ${bits.join(' · ')}`:'';
+  }
+  const narrativeStores=Object.entries(_storeRows)
+    .filter(([,rows])=>rows.length>=5)
+    .sort((a,b)=>b[1].length-a[1].length)
+    .slice(0,30);
+  const narrativeBlocks=narrativeStores.map(([store,rows])=>{
+    const phrases=_phrasesForRows(rows);
+    const wkS=wk.stores.find(s=>s.outlet===store);
+    const meta=wkS?`${wkS.market||'—'} · RM: ${wkS.rm||'—'}`:'—';
+    if(!phrases.length){
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--muted);border-radius:10px;padding:12px 16px;margin-bottom:.6rem;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:2px;">
+          <span class="clickable" onclick="showStoreModal('${store.replace(/'/g,"\\'")}')">${store}</span>
+          <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:6px;">${meta} · ${rows.length} loss entries</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);">No recurring phrases in notes for this store.</div>
+      </div>`;
+    }
+    const [topPhrase,topIdxs]=phrases[0];
+    const topRows=topIdxs.map(i=>rows[i]);
+    const headline=`Most of the loss is captured around <strong>${topPhrase}</strong> (${topIdxs.length} of ${rows.length} entries, ${pct(topIdxs.length,rows.length)}%)${_ctxBits(topRows)}.`;
+    const secondary=phrases.slice(1,6);
+    const bullets=secondary.map(([p,arr])=>{
+      const rs=arr.map(i=>rows[i]);
+      return `<li><strong>${p}</strong> — ${arr.length} mentions (${pct(arr.length,rows.length)}%)${_ctxBits(rs)}</li>`;
+    }).join('');
+    // Repeated design numbers within this store
+    const dnMap={};
+    if(_dnIdx>=0){
+      rows.forEach(r=>{
+        const d=String(r[_dnIdx]||'').trim();
+        if(!d||d==='-'||d.length<3)return;
+        dnMap[d]=(dnMap[d]||0)+1;
+      });
+    }
+    const topDns=Object.entries(dnMap).filter(([,c])=>c>=2).sort((a,b)=>b[1]-a[1]).slice(0,3);
+    const dnLine=topDns.length?`<div style="font-size:12px;color:var(--muted);margin-top:6px;">🔁 Repeat design#s: ${topDns.map(([d,c])=>`<strong>${d}</strong> (${c}×)`).join(', ')}</div>`:'';
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--red);border-radius:10px;padding:12px 16px;margin-bottom:.6rem;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px;">
+        <span class="clickable" onclick="showStoreModal('${store.replace(/'/g,"\\'")}')">${store}</span>
+        <span style="font-weight:400;color:var(--muted);font-size:11px;margin-left:6px;">${meta} · ${rows.length} loss entries</span>
+      </div>
+      <div style="font-size:13px;line-height:1.5;margin-bottom:${secondary.length?'6px':'0'};">${headline}</div>
+      ${secondary.length?`<div style="font-size:12px;color:var(--muted);margin-bottom:2px;">Other recurring patterns:</div><ul style="margin:0 0 0 1.2rem;padding:0;font-size:12px;line-height:1.55;">${bullets}</ul>`:''}
+      ${dnLine}
+    </div>`;
+  }).join('');
+
   const notesHtml=`
     <p style="font-size:11px;color:var(--muted);margin:0 0 10px 0;">
       📋 Recurring phrases extracted from <strong>Customer Notes</strong> + <strong>Notes</strong> columns (1-3 word phrases, stop-words filtered, ≥3 mentions). Repeated design numbers tracked separately. Each row shows the top 2 values of each attribute among the rows where that phrase appeared.
     </p>
     ${noteCols.length===0?'<div class="err-card" style="margin-bottom:1rem;">⚠️ Neither <code>Customer Notes</code> nor <code>Notes</code> column detected in the sheet. Add either column to surface phrase patterns here.</div>':''}
-    <div class="section-lbl">🔤 Top recurring phrases — keywords from notes (e.g., "size 2-2", "long hara", "antique")</div>
+    <div class="section-lbl">📣 Store-wise summary — forum style (top driver as headline, secondary patterns as bullets)</div>
+    ${narrativeBlocks||'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No stores with ≥5 loss entries and notes to summarise.</p>'}
+    <div class="section-lbl" style="margin-top:1.25rem;">🔤 Top recurring phrases — keywords from notes (e.g., "size 2-2", "long hara", "antique")</div>
     ${phraseTblRows.length?sortableTbl(['Phrase / keyword','Mentions','Stores','Top color(s)','Top size(s)','Top style(s)','Top polish(es)','Top design#'],phraseTblRows,null):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No recurring phrases found (need ≥3 mentions across notes).</p>'}
     <div class="section-lbl" style="margin-top:1.25rem;">🔁 Repeated design numbers — same design# requested ≥2 times</div>
     ${designTblRows.length?sortableTbl(['Design #','Requests','Stores','Top color(s)','Top size(s)','Top style(s)','Top polish(es)','Sample note'],designTblRows,null):'<p style="color:var(--muted);font-size:12px;padding:.5rem 0;">No design numbers repeated, or column not detected.</p>'}
