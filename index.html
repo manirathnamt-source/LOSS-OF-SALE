@@ -94,6 +94,9 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
 .modal-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1rem;padding-bottom:.75rem;border-bottom:1px solid var(--border);}
 .modal-title{font-size:15px;font-weight:600;}.modal-sub{font-size:12px;color:var(--muted);margin-top:2px;}
 .modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);margin-left:12px;}
+.modal-back{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--text);margin-left:8px;display:none;}
+.modal-back:hover{background:var(--border);}
+.modal-actions{display:flex;align-items:center;}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:1rem;}
 .section-lbl{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
 .loading{padding:3rem;text-align:center;color:var(--muted);font-size:14px;}
@@ -135,7 +138,10 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
   <div class="modal">
     <div class="modal-header">
       <div><div class="modal-title" id="modal-title"></div><div class="modal-sub" id="modal-sub"></div></div>
-      <button class="modal-close" onclick="closeModal()">✕</button>
+      <div class="modal-actions">
+        <button class="modal-back" id="modal-back" onclick="modalBack()" title="Back to previous view">← Back</button>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
     </div>
     <div id="modal-body"></div>
   </div>
@@ -308,12 +314,44 @@ function show(id){
   if(id==='ask')renderAsk();
   if(id==='ins')renderInsights();
 }
-function closeModal(e){if(!e||e.target===document.getElementById('modal-overlay'))document.getElementById('modal-overlay').classList.remove('open');}
+window._modalStack=window._modalStack||[];
+function _updateModalBackBtn(){
+  const btn=document.getElementById('modal-back');
+  if(btn)btn.style.display=window._modalStack.length?'inline-block':'none';
+}
+function closeModal(e){
+  if(!e||e.target===document.getElementById('modal-overlay')){
+    document.getElementById('modal-overlay').classList.remove('open');
+    window._modalStack=[];
+    _updateModalBackBtn();
+  }
+}
 function openModal(title,sub,html){
+  const overlay=document.getElementById('modal-overlay');
+  // If a modal is already open, push current state so back button can return to it
+  if(overlay.classList.contains('open')){
+    window._modalStack.push({
+      title:document.getElementById('modal-title').textContent,
+      sub:document.getElementById('modal-sub').textContent,
+      html:document.getElementById('modal-body').innerHTML,
+      scroll:document.querySelector('.modal')?document.querySelector('.modal').scrollTop:0
+    });
+  }
   document.getElementById('modal-title').textContent=title;
   document.getElementById('modal-sub').textContent=sub||'';
   document.getElementById('modal-body').innerHTML=html;
-  document.getElementById('modal-overlay').classList.add('open');
+  overlay.classList.add('open');
+  const m=document.querySelector('.modal');if(m)m.scrollTop=0;
+  _updateModalBackBtn();
+}
+function modalBack(){
+  if(!window._modalStack.length)return;
+  const prev=window._modalStack.pop();
+  document.getElementById('modal-title').textContent=prev.title;
+  document.getElementById('modal-sub').textContent=prev.sub||'';
+  document.getElementById('modal-body').innerHTML=prev.html;
+  const m=document.querySelector('.modal');if(m)m.scrollTop=prev.scroll||0;
+  _updateModalBackBtn();
 }
 async function fetchTab(name){
   const r=await fetch(`${API}?sheet=${encodeURIComponent(name)}`,{redirect:'follow'});
@@ -4968,18 +5006,18 @@ window.showCatTotalModal=function(){
     <div class="two-col" style="margin-bottom:1.25rem;">
       <div>
         <div class="section-lbl">Top 10 categories</div>
-        ${sortableTbl(['Category','Count','Share%'],mkRows(topCats,k=>`closeModal();showCatDetailModal('${k.replace(/'/g,"\\\\'")}')`),null)}
+        ${sortableTbl(['Category','Count','Share%'],mkRows(topCats,k=>`showCatDetailModal('${k.replace(/'/g,"\\\\'")}')`),null)}
       </div>
       <div>
         <div class="section-lbl">Top 10 reasons (col I)</div>
-        ${sortableTbl(['Reason','Count','Share%'],mkRows(topReasons,k=>`closeModal();showReasonModal('${k.replace(/'/g,"\\\\'")}')`),null)}
+        ${sortableTbl(['Reason','Count','Share%'],mkRows(topReasons,k=>`showReasonModal('${k.replace(/'/g,"\\\\'")}')`),null)}
       </div>
     </div>
     <div class="two-col">
       <div>
         <div class="section-lbl">Top 10 markets</div>
         ${sortableTbl(['Market','Count','Share%'],topMkts.map(([k,v])=>({cells:[
-          `<span class="clickable" onclick="closeModal();showMarketModal('${k.replace(/'/g,"\\\\'")}')">${k}</span>`,
+          `<span class="clickable" onclick="showMarketModal('${k.replace(/'/g,"\\\\'")}')">${k}</span>`,
           fi(v.total),
           `<span class="badge ${_catPct(v.total,total)>=15?'badge-red':_catPct(v.total,total)>=8?'badge-amber':'badge-green'}">${_catPct(v.total,total)}%</span>`
         ]})),null)}
@@ -4996,7 +5034,7 @@ window.showCatListModal=function(){
   const{catGrp,total}=ctx;
   const tblRows=catGrp.map(([k,v])=>({
     cells:[
-      `<span class="clickable" onclick="closeModal();showCatDetailModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      `<span class="clickable" onclick="showCatDetailModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
       fi(v.c),
       fi(v.stores.size),
       `<span class="badge ${_catPct(v.c,total)>=15?'badge-red':_catPct(v.c,total)>=8?'badge-amber':'badge-green'}">${_catPct(v.c,total)}%</span>`,
@@ -5014,7 +5052,7 @@ window.showCatReasonsModal=function(){
   const{reasonGrp,total}=ctx;
   const tblRows=reasonGrp.map(([k,v])=>({
     cells:[
-      `<span class="clickable" onclick="closeModal();showReasonModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      `<span class="clickable" onclick="showReasonModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
       fi(v.c),
       fi(v.stores.size),
       `<span class="badge ${_catPct(v.c,total)>=15?'badge-red':_catPct(v.c,total)>=8?'badge-amber':'badge-green'}">${_catPct(v.c,total)}%</span>`,
@@ -5035,7 +5073,7 @@ window.showCatMarketsModal=function(){
     const topReason=Object.entries(v.reasons).sort((a,b)=>b[1]-a[1])[0];
     return{
       cells:[
-        `<span class="clickable" onclick="closeModal();showMarketModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+        `<span class="clickable" onclick="showMarketModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
         fi(v.total),
         `<span class="badge ${_catPct(v.total,total)>=15?'badge-red':_catPct(v.total,total)>=8?'badge-amber':'badge-green'}">${_catPct(v.total,total)}%</span>`,
         topCat?`${topCat[0]} (${topCat[1]})`:'—',
@@ -5260,10 +5298,10 @@ window.showSubReasonModal=function(subReason){
     <div style="background:#f8f9fb;border-radius:10px;padding:12px;margin-bottom:1.25rem;">
       <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:10px;">📊 Geographic & ownership breakdown</div>
       <div class="two-col" style="grid-template-columns:1fr 1fr;gap:1rem;">
-        <div>${mkAggTbl('Market',aggMkt,k=>`closeModal();showMarketModal('${k.replace(/'/g,"\\\\'")}')`)}</div>
+        <div>${mkAggTbl('Market',aggMkt,k=>`showMarketModal('${k.replace(/'/g,"\\\\'")}')`)}</div>
         <div>${mkAggTbl('Cluster',aggClu,null)}</div>
       </div>
-      ${mkAggTbl('RM',aggRm,k=>`closeModal();showRMModal('${k.replace(/'/g,"\\\\'")}')`)}
+      ${mkAggTbl('RM',aggRm,k=>`showRMModal('${k.replace(/'/g,"\\\\'")}')`)}
     </div>
 
     <div class="section-lbl">📋 Store-wise list — click a store name for full detail</div>
