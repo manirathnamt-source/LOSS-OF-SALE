@@ -1247,11 +1247,12 @@ window.setWklyMetric=function(m){_wklyMetric=m;renderWeekly();};
 function renderWeekly(){
   const f=getFilters();
   const rows=filterLS(f);
-  const{storeIdx}=_LS_IDX;
+  const{storeIdx,purposeIdx}=_LS_IDX;
   const target=document.getElementById('wkly');
 
   // ── Bucket LOSS by week ──
   const byWeekLoss={};
+  const byWeekPurp={}; // loss entries with a non-empty Purpose (col T)
   rows.forEach(r=>{
     const wk=getWeekKey(r._dk);
     if(!wk)return;
@@ -1266,6 +1267,15 @@ function renderWeekly(){
     byWeekLoss[wk].byMarket[market]=(byWeekLoss[wk].byMarket[market]||0)+1;
     const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
     byWeekLoss[wk].byStore[store]=(byWeekLoss[wk].byStore[store]||0)+1;
+    // Mirror into byWeekPurp only when Purpose is captured
+    if(purposeIdx>=0&&String(r[purposeIdx]||'').trim()){
+      if(!byWeekPurp[wk])byWeekPurp[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+      byWeekPurp[wk].total++;
+      byWeekPurp[wk].byRM[rm]=(byWeekPurp[wk].byRM[rm]||0)+1;
+      byWeekPurp[wk].byCluster[cluster]=(byWeekPurp[wk].byCluster[cluster]||0)+1;
+      byWeekPurp[wk].byMarket[market]=(byWeekPurp[wk].byMarket[market]||0)+1;
+      byWeekPurp[wk].byStore[store]=(byWeekPurp[wk].byStore[store]||0)+1;
+    }
   });
 
   // ── Bucket WALKINS by week (using filterStores so RM/Cluster/Market/Store filter applies) ──
@@ -1309,12 +1319,14 @@ function renderWeekly(){
   // 'loss'    → byWeekLoss only        (red=increase=bad)
   // 'walkins' → byWeekWk only          (green=increase=good)
   // 'both'    → cell shows "L / W" with conv% in WoW column
+  // 'purpose' → cell shows "withPurp / lossTotal" with collection% beneath
   const isLoss=_wklyMetric==='loss';
   const isWalkin=_wklyMetric==='walkins';
   const isBoth=_wklyMetric==='both';
-  const byWeek=isLoss?byWeekLoss:isWalkin?byWeekWk:byWeekLoss; // primary; 'both' uses both
-  const metricNoun=isLoss?'loss entries':isWalkin?'walkins':'loss / walkins';
-  const overallIncreaseGood=isWalkin; // for walkin mode, ▲ = good
+  const isPurpose=_wklyMetric==='purpose';
+  const byWeek=isLoss?byWeekLoss:isWalkin?byWeekWk:byWeekLoss; // primary; 'both'/'purpose' use both
+  const metricNoun=isLoss?'loss entries':isWalkin?'walkins':isPurpose?'purpose-captured / total loss':'loss / walkins';
+  const overallIncreaseGood=isWalkin||isPurpose; // for walkin/purpose mode, ▲ = good
 
   const buildRows=(dim,src)=>{
     const allKeys=new Set();
@@ -1386,6 +1398,71 @@ function renderWeekly(){
         ${sortableTbl(headers,tblRows,totFooter)}
       </div>`;
     }
+    if(isPurpose){
+      // Purpose collection view: each week column shows "withPurp / lossTotal" with capture% beneath.
+      // Final columns: total captured, total loss, overall capture%, WoW Δ on capture%.
+      const lossRows=buildRows(dim,byWeekLoss);
+      const purpRows=buildRows(dim,byWeekPurp);
+      const lossMap=Object.fromEntries(lossRows.map(r=>[r.key,r]));
+      const purpMap=Object.fromEntries(purpRows.map(r=>[r.key,r]));
+      const allKeys=[...new Set([...lossRows.map(r=>r.key),...purpRows.map(r=>r.key)])];
+      if(!allKeys.length)return'';
+      const headers=[label,...weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}<br><span style="font-size:9px;font-weight:500;color:var(--muted);">With purpose / Loss</span></span>`),'Captured','Loss total','Capture%','WoW Capture%'];
+      const tblRows=allKeys.map(k=>{
+        const L=lossMap[k]||{counts:weeks.map(()=>0),total:0};
+        const P=purpMap[k]||{counts:weeks.map(()=>0),total:0};
+        const cap=L.total>0?Math.round(P.total/L.total*100):0;
+        const lastL=L.counts[L.counts.length-1]||0;
+        const prevL=L.counts[L.counts.length-2]||0;
+        const lastP=P.counts[P.counts.length-1]||0;
+        const prevP=P.counts[P.counts.length-2]||0;
+        const lastCap=lastL>0?Math.round(lastP/lastL*100):0;
+        const prevCap=prevL>0?Math.round(prevP/prevL*100):0;
+        const capDelta=lastCap-prevCap;
+        return{cells:[
+          clickFn?`<span class="clickable" onclick="${clickFn(k)}">${k}</span>`:`<strong>${k}</strong>`,
+          ...weeks.map((_,i)=>{
+            const l=L.counts[i]||0;const p=P.counts[i]||0;
+            const c=l>0?Math.round(p/l*100):0;
+            return`<span style="font-weight:600;color:var(--green)">${fi(p)}</span> <span style="font-size:10px;color:var(--muted)">/</span> <span style="font-weight:600;color:var(--red)">${fi(l)}</span><br><span style="font-size:10px;color:${c>=70?'var(--green)':c>=30?'var(--amber)':'var(--red)'};font-weight:600;">${l>0?c+'%':'—'}</span>`;
+          }),
+          `<strong style="color:var(--green)">${fi(P.total)}</strong>`,
+          `<strong style="color:var(--red)">${fi(L.total)}</strong>`,
+          `<span class="badge ${cap>=70?'badge-green':cap>=30?'badge-amber':'badge-red'}">${cap}%</span>`,
+          (function(){
+            if(prevL===0&&lastL===0)return'<span class="badge" style="background:#f0f0f0;color:var(--muted);">—</span>';
+            const arrow=capDelta>0?'▲ +':capDelta<0?'▼ ':'→ ';
+            const cls=capDelta>0?'badge-green':capDelta<0?'badge-red':'';
+            return`<span class="badge ${cls}" style="${capDelta===0?'background:#f0f0f0;color:var(--muted);':''}">${arrow}${Math.abs(capDelta)} pts</span>`;
+          })()
+        ]};
+      }).sort((a,b)=>{
+        // Sort worst capture% first so leakage stands out
+        const ax=String(a.cells[weeks.length+3]).match(/(-?\d+)/);
+        const bx=String(b.cells[weeks.length+3]).match(/(-?\d+)/);
+        return(ax?+ax[1]:0)-(bx?+bx[1]:0);
+      });
+      const totalsL=weeks.map(w=>byWeekLoss[w]?.total||0);
+      const totalsP=weeks.map(w=>byWeekPurp[w]?.total||0);
+      const tL=totalsL.reduce((a,b)=>a+b,0);
+      const tP=totalsP.reduce((a,b)=>a+b,0);
+      const tCap=tL>0?Math.round(tP/tL*100):0;
+      const lastL=totalsL[totalsL.length-1]||0,prevL=totalsL[totalsL.length-2]||0;
+      const lastP=totalsP[totalsP.length-1]||0,prevP=totalsP[totalsP.length-2]||0;
+      const lastCap=lastL>0?Math.round(lastP/lastL*100):0;
+      const prevCap=prevL>0?Math.round(prevP/prevL*100):0;
+      const capDelta=lastCap-prevCap;
+      const arrow=capDelta>0?'▲ +':capDelta<0?'▼ ':'→ ';
+      const cls=capDelta>0?'badge-green':capDelta<0?'badge-red':'';
+      const totFooter=['Total',
+        ...weeks.map((_,i)=>{const c=totalsL[i]>0?Math.round(totalsP[i]/totalsL[i]*100):0;return`<span style="font-weight:700;color:var(--green)">${fi(totalsP[i])}</span> / <span style="font-weight:700;color:var(--red)">${fi(totalsL[i])}</span><br><span style="font-size:10px;color:${c>=70?'var(--green)':c>=30?'var(--amber)':'var(--red)'};font-weight:600;">${totalsL[i]>0?c+'%':'—'}</span>`;}),
+        fi(tP),fi(tL),`<span class="badge ${tCap>=70?'badge-green':tCap>=30?'badge-amber':'badge-red'}">${tCap}%</span>`,
+        `<span class="badge ${cls}" style="${capDelta===0?'background:#f0f0f0;color:var(--muted);':''}">${arrow}${Math.abs(capDelta)} pts</span>`
+      ];
+      return`<div class="card"><div class="card-title">By ${label.toLowerCase()} (${allKeys.length}) — Purpose collection (worst capture% first)</div>
+        ${sortableTbl(headers,tblRows,totFooter)}
+      </div>`;
+    }
     // Single-metric view (loss or walkin)
     const src=isLoss?byWeekLoss:byWeekWk;
     const dimRows=buildRows(dim,src);
@@ -1409,21 +1486,28 @@ function renderWeekly(){
   // Top-line metrics — use whichever metric is selected (or both for the 'both' mode)
   const totalAllLoss=weeks.reduce((s,w)=>s+(byWeekLoss[w]?.total||0),0);
   const totalAllWk=weeks.reduce((s,w)=>s+(byWeekWk[w]?.total||0),0);
+  const totalAllPurp=weeks.reduce((s,w)=>s+(byWeekPurp[w]?.total||0),0);
   const lastWkLoss=byWeekLoss[weeks[weeks.length-1]]?.total||0;
   const prevWkLoss=byWeekLoss[weeks[weeks.length-2]]?.total||0;
   const lastWkWk=byWeekWk[weeks[weeks.length-1]]?.total||0;
   const prevWkWk=byWeekWk[weeks[weeks.length-2]]?.total||0;
+  const lastWkPurp=byWeekPurp[weeks[weeks.length-1]]?.total||0;
+  const prevWkPurp=byWeekPurp[weeks[weeks.length-2]]?.total||0;
   const dLoss=lastWkLoss-prevWkLoss;
   const dWk=lastWkWk-prevWkWk;
   const pLoss=prevWkLoss>0?Math.round(dLoss/prevWkLoss*100):(lastWkLoss>0?100:0);
   const pWk=prevWkWk>0?Math.round(dWk/prevWkWk*100):(lastWkWk>0?100:0);
+  const overallCap=totalAllLoss>0?Math.round(totalAllPurp/totalAllLoss*100):0;
+  const lastCap=lastWkLoss>0?Math.round(lastWkPurp/lastWkLoss*100):0;
+  const prevCap=prevWkLoss>0?Math.round(prevWkPurp/prevWkLoss*100):0;
+  const dCap=lastCap-prevCap;
 
   const segBtn=(mode,label,emoji)=>`<button class="filter-btn" onclick="setWklyMetric('${mode}')" style="border:0;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;background:${_wklyMetric===mode?'var(--blue)':'var(--surface)'};color:${_wklyMetric===mode?'#fff':'var(--muted)'};border-radius:0;">${emoji} ${label}</button>`;
 
   target.innerHTML=`
     <div style="background:linear-gradient(135deg,#f5f0ff 0%,#fff 100%);border:1px solid #e0d4f7;border-left:4px solid #6b52d4;border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
       <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">📅 Weekly Comparison</div>
-      <div style="font-size:12px;color:var(--muted);">Per ISO week (Mon–Sun). In <strong>Loss</strong> mode ▲ red = more loss (bad). In <strong>Walkins</strong> mode ▲ green = more footfall (good). Pick <strong>Both</strong> to see Loss / Walkins side-by-side with conversion %.</div>
+      <div style="font-size:12px;color:var(--muted);">Per ISO week (Mon–Sun). In <strong>Loss</strong> mode ▲ red = more loss (bad). In <strong>Walkins</strong> mode ▲ green = more footfall (good). <strong>Both</strong> shows Loss / Walkins side-by-side with conversion %. <strong>Purpose</strong> shows how many loss entries had a purpose captured each week — ▲ green = better capture.</div>
     </div>
 
     <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:1rem;">
@@ -1432,7 +1516,10 @@ function renderWeekly(){
       ${segBtn('walkins','Walkins','👣')}
       <div style="width:1px;background:var(--border);"></div>
       ${segBtn('both','Both (Loss / Walkins)','🔀')}
+      <div style="width:1px;background:var(--border);"></div>
+      ${segBtn('purpose','Purpose collection','🎯')}
     </div>
+    ${isPurpose&&purposeIdx<0?`<div class="err-card" style="margin-bottom:1rem;">⚠️ <code>Purpose</code> column not detected in the loss sheet. Add a Purpose column (e.g. col T) to track capture rate here.</div>`:''}
 
     <div class="metrics" style="margin-bottom:1.25rem;">
       <div class="metric"><div class="lbl">Weeks loaded</div><div class="val">${weeks.length}</div><div class="sub">${getWeekRange(weeks[0])} → ${getWeekRange(weeks[weeks.length-1])}</div></div>
@@ -1444,6 +1531,10 @@ function renderWeekly(){
         <div class="metric red"><div class="lbl">Total loss entries</div><div class="val">${fi(totalAllLoss)}</div></div>
         <div class="metric"><div class="lbl">Latest week loss</div><div class="val">${fi(lastWkLoss)}</div><div class="sub">${getWeekRange(weeks[weeks.length-1])}</div></div>
         <div class="metric ${dLoss>0?'red':dLoss<0?'green':''}"><div class="lbl">Δ loss vs previous</div><div class="val">${dLoss>0?'+':''}${fi(dLoss)}</div><div class="sub">${pLoss>0?'+':''}${pLoss}% ${dLoss>0?'more loss':dLoss<0?'less loss':'no change'}</div></div>
+      `:isPurpose?`
+        <div class="metric ${overallCap>=70?'green':overallCap>=30?'amber':'red'}"><div class="lbl">Overall capture rate</div><div class="val">${overallCap}%</div><div class="sub">${fi(totalAllPurp)} of ${fi(totalAllLoss)} loss entries had a purpose</div></div>
+        <div class="metric ${lastCap>=70?'green':lastCap>=30?'amber':'red'}"><div class="lbl">Latest week capture</div><div class="val">${lastCap}%</div><div class="sub">${fi(lastWkPurp)} / ${fi(lastWkLoss)} · ${getWeekRange(weeks[weeks.length-1])}</div></div>
+        <div class="metric ${dCap>0?'green':dCap<0?'red':''}"><div class="lbl">Δ capture vs previous</div><div class="val">${dCap>0?'+':''}${dCap} pts</div><div class="sub">${dCap>0?'better collection':dCap<0?'collection slipped':'no change'}</div></div>
       `:`
         <div class="metric red"><div class="lbl">Latest loss</div><div class="val">${fi(lastWkLoss)}</div><div class="sub">${dLoss>0?'+':''}${pLoss}% vs prev</div></div>
         <div class="metric blue"><div class="lbl">Latest walkins</div><div class="val">${fi(lastWkWk)}</div><div class="sub">${dWk>0?'+':''}${pWk}% vs prev</div></div>
