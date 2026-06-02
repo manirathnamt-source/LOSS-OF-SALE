@@ -6220,6 +6220,14 @@ function _kpiConv2(aA,mA){
   if(aA==null&&mA==null)return'<span style="color:var(--muted)">—</span>';
   return `<div style="font-size:11px;line-height:1.35;"><div><span style="color:var(--muted);font-size:9px;font-weight:600;">APR</span> ${aA==null?'—':(aA*100).toFixed(1)+'%'}</div><div><span style="color:var(--muted);font-size:9px;font-weight:600;">MAY</span> ${mA==null?'—':(mA*100).toFixed(1)+'%'}</div></div>`;
 }
+// Mode-aware cell helpers — pick April / May / Both based on _saleMonth toggle
+let _saleMonth='both';
+window.setSaleMonth=function(m){_saleMonth=m;renderSale();};
+function _kpiTAm(aT,aA,mT,mA){return _saleMonth==='apr'?_kpiTA(aT,aA):_saleMonth==='may'?_kpiTA(mT,mA):_kpiTA2(aT,aA,mT,mA);}
+function _kpiTAMoneym(aT,aA,mT,mA){return _saleMonth==='apr'?_kpiTAMoney(aT,aA):_saleMonth==='may'?_kpiTAMoney(mT,mA):_kpiTAMoney2(aT,aA,mT,mA);}
+function _kpiNumm(aA,mA){return _saleMonth==='apr'?(aA==null?'<span style="color:var(--muted)">—</span>':fi(aA)):_saleMonth==='may'?(mA==null?'<span style="color:var(--muted)">—</span>':fi(mA)):_kpiNum2(aA,mA);}
+function _kpiConvm(aA,mA){return _saleMonth==='apr'?_kpiConv(aA):_saleMonth==='may'?_kpiConv(mA):_kpiConv2(aA,mA);}
+function _saleColHdr(base){return _saleMonth==='apr'?`Apr ${base}`:_saleMonth==='may'?`May ${base}`:`${base} Apr / May`;}
 
 // Build a per-store joined row: KPI + loss stats (within current filters)
 function _kpiJoined(f){
@@ -6389,41 +6397,41 @@ function renderSale(){
   );
 
   const mktTbl=sortableTbl(
-    ['Market','Stores','Walk-ins Apr / May (Ach/Tgt)','Bills Apr / May','Sale Apr / May (Ach/Tgt)','Cum Sale Ach%','Loss entries','Loss-cov%'],
+    ['Market','Stores',_saleColHdr('Walk-ins (Ach/Tgt)'),_saleColHdr('Bills'),_saleColHdr('Sale (Ach/Tgt)'),'Cum Sale Ach%','Loss entries','Loss-cov%'],
     mktArr.map(([k,v])=>{
       const cov=v.nb>0?Math.round(v.loss/v.nb*100):0;
       const avgCum=v.cumAchN>0?Math.round(v.cumAchSum/v.cumAchN):null;
       return{cells:[
         `<span class="clickable" onclick="showSaleScopeModal('market','${k.replace(/'/g,"\\'")}')">${k}</span>`,
         fi(v.count),
-        _kpiTA2(v.wkAprT,v.wkAprA,v.wkMayT,v.wkMayA),
-        _kpiNum2(v.billsAprA,v.billsMayA),
-        _kpiTAMoney2(v.saleAprT,v.saleAprA,v.saleMayT,v.saleMayA),
+        _kpiTAm(v.wkAprT,v.wkAprA,v.wkMayT,v.wkMayA),
+        _kpiNumm(v.billsAprA,v.billsMayA),
+        _kpiTAMoneym(v.saleAprT,v.saleAprA,v.saleMayT,v.saleMayA),
         _kpiAchDisp(avgCum),
         fi(v.loss),
         `<span class="badge ${bc(cov)}">${cov}%</span>`
       ]};
     }),
-    ['Total',fi(joined.length),_kpiTA2(totalWkAprT,totalWkAprA,totalWkMayT,totalWkMayA),_kpiNum2(totalBillsAprA,totalBillsMayA),_kpiTAMoney2(totalSaleAprT,totalSaleAprA,totalSaleMayT,totalSaleMayA),'',fi(totalLoss),`<span class="badge ${bc(overallLossCov)}">${overallLossCov}%</span>`]
+    ['Total',fi(joined.length),_kpiTAm(totalWkAprT,totalWkAprA,totalWkMayT,totalWkMayA),_kpiNumm(totalBillsAprA,totalBillsMayA),_kpiTAMoneym(totalSaleAprT,totalSaleAprA,totalSaleMayT,totalSaleMayA),'',fi(totalLoss),`<span class="badge ${bc(overallLossCov)}">${overallLossCov}%</span>`]
   );
 
   const rmTbl=sortableTbl(
-    ['RM','Stores','Walk-ins Apr / May (Ach/Tgt)','Bills Apr / May','Sale Apr / May (Ach/Tgt)','Cum Sale Ach%','Loss entries','Loss-cov%'],
+    ['RM','Stores',_saleColHdr('Walk-ins (Ach/Tgt)'),_saleColHdr('Bills'),_saleColHdr('Sale (Ach/Tgt)'),'Cum Sale Ach%','Loss entries','Loss-cov%'],
     rmArr.map(([k,v])=>{
       const cov=v.nb>0?Math.round(v.loss/v.nb*100):0;
       const avgCum=v.cumAchN>0?Math.round(v.cumAchSum/v.cumAchN):null;
       return{cells:[
         `<span class="clickable" onclick="showSaleScopeModal('rm','${k.replace(/'/g,"\\'")}')">${k}</span>`,
         fi(v.count),
-        _kpiTA2(v.wkAprT,v.wkAprA,v.wkMayT,v.wkMayA),
-        _kpiNum2(v.billsAprA,v.billsMayA),
-        _kpiTAMoney2(v.saleAprT,v.saleAprA,v.saleMayT,v.saleMayA),
+        _kpiTAm(v.wkAprT,v.wkAprA,v.wkMayT,v.wkMayA),
+        _kpiNumm(v.billsAprA,v.billsMayA),
+        _kpiTAMoneym(v.saleAprT,v.saleAprA,v.saleMayT,v.saleMayA),
         _kpiAchDisp(avgCum),
         fi(v.loss),
         `<span class="badge ${bc(cov)}">${cov}%</span>`
       ]};
     }),
-    ['Total',fi(joined.length),_kpiTA2(totalWkAprT,totalWkAprA,totalWkMayT,totalWkMayA),_kpiNum2(totalBillsAprA,totalBillsMayA),_kpiTAMoney2(totalSaleAprT,totalSaleAprA,totalSaleMayT,totalSaleMayA),'',fi(totalLoss),`<span class="badge ${bc(overallLossCov)}">${overallLossCov}%</span>`]
+    ['Total',fi(joined.length),_kpiTAm(totalWkAprT,totalWkAprA,totalWkMayT,totalWkMayA),_kpiNumm(totalBillsAprA,totalBillsMayA),_kpiTAMoneym(totalSaleAprT,totalSaleAprA,totalSaleMayT,totalSaleMayA),'',fi(totalLoss),`<span class="badge ${bc(overallLossCov)}">${overallLossCov}%</span>`]
   );
 
   const storeRowHTML=j=>{
@@ -6440,13 +6448,13 @@ function renderSale(){
       `<span style="font-size:11px;color:var(--muted)">${k.rm}</span>`,
       `<span style="font-size:11px;color:var(--muted)">${k.type||'—'}</span>`,
       `<span style="font-size:11px;color:${k.remark==='On Track'?'var(--green)':k.remark==='No Clear Numbers'?'var(--muted)':'var(--red)'};font-weight:600;">${k.remark||'—'}</span>`,
-      _kpiTA2(k.walkins.aprT,k.walkins.aprA,k.walkins.mayT,k.walkins.mayA),
+      _kpiTAm(k.walkins.aprT,k.walkins.aprA,k.walkins.mayT,k.walkins.mayA),
       _kpiAchDisp(k.walkins.cumAch),
-      _kpiConv2(k.conversion.aprA,k.conversion.mayA),
+      _kpiConvm(k.conversion.aprA,k.conversion.mayA),
       _kpiAchDisp(k.conversion.cumAch),
-      _kpiTA2(k.bills.aprT,k.bills.aprA,k.bills.mayT,k.bills.mayA),
+      _kpiTAm(k.bills.aprT,k.bills.aprA,k.bills.mayT,k.bills.mayA),
       _kpiAchDisp(k.bills.cumAch),
-      _kpiTAMoney2(k.sale.aprT,k.sale.aprA,k.sale.mayT,k.sale.mayA),
+      _kpiTAMoneym(k.sale.aprT,k.sale.aprA,k.sale.mayT,k.sale.mayA),
       _kpiAchDisp(k.sale.cumAch),
       fi(j.lossCount),
       `<span class="badge ${bc(cov)}">${cov}%</span>`,
@@ -6455,7 +6463,7 @@ function renderSale(){
   };
 
   const storeTbl=sortableTbl(
-    ['Store','Market','RM','Type','Remark','Walk-ins Apr / May','Walk-ins Cum%','Conv Apr / May','Conv Cum%','Bills Apr / May','Bills Cum%','Sale Apr / May','Sale Cum%','Loss','Loss-cov%','Top reason'],
+    ['Store','Market','RM','Type','Remark',_saleColHdr('Walk-ins'),'Walk-ins Cum%',_saleColHdr('Conv'),'Conv Cum%',_saleColHdr('Bills'),'Bills Cum%',_saleColHdr('Sale'),'Sale Cum%','Loss','Loss-cov%','Top reason'],
     joined.sort((a,b)=>b.lossCount-a.lossCount).map(storeRowHTML),
     null
   );
@@ -6486,17 +6494,45 @@ function renderSale(){
     </div>`;
   };
 
+  // Tile values switch with the Apr / May / Both toggle
+  const saleAchApr=totalSaleAprT>0?Math.round(totalSaleAprA/totalSaleAprT*100):0;
+  const wkAchApr=totalWkAprT>0?Math.round(totalWkAprA/totalWkAprT*100):0;
+  const convApr=totalWkAprA>0?(totalBillsAprA/totalWkAprA*100).toFixed(1):'—';
+  let tileSale,tileWk,tileConv;
+  if(_saleMonth==='apr'){
+    tileSale={lbl:'Apr Sale',val:fs(totalSaleAprA),sub:`${saleAchApr}% of ${fs(totalSaleAprT)} target`};
+    tileWk={lbl:'Apr Walk-ins',val:fi(totalWkAprA),sub:`${wkAchApr}% of ${fi(totalWkAprT)} target`};
+    tileConv={lbl:'Apr Conversion',val:`${convApr}%`,sub:'bills / walk-ins (weighted)'};
+  }else if(_saleMonth==='may'){
+    tileSale={lbl:'May Sale',val:fs(totalSaleMayA),sub:`${saleAchMay}% of ${fs(totalSaleMayT)} target`};
+    tileWk={lbl:'May Walk-ins',val:fi(totalWkMayA),sub:`${wkAchMay}% of ${fi(totalWkMayT)} target`};
+    tileConv={lbl:'May Conversion',val:`${convMay}%`,sub:'bills / walk-ins (weighted)'};
+  }else{
+    tileSale={lbl:'Sale Apr + May',val:fs(totalSaleAprA+totalSaleMayA),sub:`Apr ${fs(totalSaleAprA)} (${saleAchApr}%) · May ${fs(totalSaleMayA)} (${saleAchMay}%)`};
+    tileWk={lbl:'Walk-ins Apr + May',val:fi(totalWkAprA+totalWkMayA),sub:`Apr ${fi(totalWkAprA)} (${wkAchApr}%) · May ${fi(totalWkMayA)} (${wkAchMay}%)`};
+    tileConv={lbl:'Conversion (weighted)',val:`${convMay}%`,sub:`Apr ${convApr}% · May ${convMay}%`};
+  }
+  const saleSegBtn=(mode,label,emoji)=>`<button onclick="setSaleMonth('${mode}')" style="border:0;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;background:${_saleMonth===mode?'var(--green)':'var(--surface)'};color:${_saleMonth===mode?'#fff':'var(--muted)'};border-radius:0;">${emoji} ${label}</button>`;
+
   target.innerHTML=`
     <div style="background:linear-gradient(135deg,#e8f9ec 0%,#fff 100%);border:1px solid #b8e3c1;border-left:4px solid var(--green);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
-      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">💰 Sale (KPI Funnel — Apr + May)</div>
-      <div style="font-size:12px;color:var(--muted);">${joined.length} stores in scope · ${matched} matched to walk-in/loss data (${joined.length-matched} unmatched). Click a market, RM, or store for drill-down. The Loss columns reflect current global filter (date / RM / market / store).</div>
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">💰 Sale (KPI Funnel)</div>
+      <div style="font-size:12px;color:var(--muted);">${joined.length} stores in scope · ${matched} matched to walk-in/loss data (${joined.length-matched} unmatched). Click a market, RM, or store for drill-down. Use the toggle below to focus on April, May, or both side-by-side. Loss columns reflect the global filter (date / RM / market / store).</div>
+    </div>
+
+    <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:1rem;">
+      ${saleSegBtn('apr','April','🅰')}
+      <div style="width:1px;background:var(--border);"></div>
+      ${saleSegBtn('may','May','🅼')}
+      <div style="width:1px;background:var(--border);"></div>
+      ${saleSegBtn('both','Both (Apr + May)','🔀')}
     </div>
 
     <div class="metrics" style="margin-bottom:1.25rem;">
       <div class="metric"><div class="lbl">Stores tracked</div><div class="val">${joined.length}</div><div class="sub">${matched} matched to loss data</div></div>
-      <div class="metric green"><div class="lbl">Sale Apr + May</div><div class="val">${fs(totalSaleAprA+totalSaleMayA)}</div><div class="sub">Apr ${fs(totalSaleAprA)} (${totalSaleAprT>0?Math.round(totalSaleAprA/totalSaleAprT*100):0}%) · May ${fs(totalSaleMayA)} (${saleAchMay}%)</div></div>
-      <div class="metric blue"><div class="lbl">Walk-ins Apr + May</div><div class="val">${fi(totalWkAprA+totalWkMayA)}</div><div class="sub">Apr ${fi(totalWkAprA)} (${totalWkAprT>0?Math.round(totalWkAprA/totalWkAprT*100):0}%) · May ${fi(totalWkMayA)} (${wkAchMay}%)</div></div>
-      <div class="metric amber"><div class="lbl">Conversion (weighted)</div><div class="val">${convMay}%</div><div class="sub">Apr ${totalWkAprA>0?(totalBillsAprA/totalWkAprA*100).toFixed(1):'—'}% · May ${convMay}%</div></div>
+      <div class="metric green"><div class="lbl">${tileSale.lbl}</div><div class="val">${tileSale.val}</div><div class="sub">${tileSale.sub}</div></div>
+      <div class="metric blue"><div class="lbl">${tileWk.lbl}</div><div class="val">${tileWk.val}</div><div class="sub">${tileWk.sub}</div></div>
+      <div class="metric amber"><div class="lbl">${tileConv.lbl}</div><div class="val">${tileConv.val}</div><div class="sub">${tileConv.sub}</div></div>
       <div class="metric red"><div class="lbl">Loss entries</div><div class="val">${fi(totalLoss)}</div><div class="sub">${overallLossCov}% of ${fi(totalNB)} non-buyers</div></div>
     </div>
 
@@ -6552,15 +6588,24 @@ window.showSaleScopeModal=function(scope,value){
   const wApr=sumK('walkins.aprA'),wAprT=sumK('walkins.aprT');
   const wMay=sumK('walkins.mayA'),wMayT=sumK('walkins.mayT');
   const bApr=sumK('bills.aprA'),bMay=sumK('bills.mayA');
+  const sAchA=sAprT>0?Math.round(sApr/sAprT*100):0,sAchM=sMayT>0?Math.round(sMay/sMayT*100):0;
+  const wAchA=wAprT>0?Math.round(wApr/wAprT*100):0,wAchM=wMayT>0?Math.round(wMay/wMayT*100):0;
+  const cvA=wApr>0?(bApr/wApr*100).toFixed(1):'—',cvM=wMay>0?(bMay/wMay*100).toFixed(1):'—';
+  let mt;
+  if(_saleMonth==='apr')mt={s:{lbl:'Apr Sale',val:fs(sApr),sub:`${sAchA}% of ${fs(sAprT)}`},w:{lbl:'Apr Walk-ins',val:fi(wApr),sub:`${wAchA}% of ${fi(wAprT)}`},b:{lbl:'Apr Bills',val:fi(bApr),sub:`conv ${cvA}%`}};
+  else if(_saleMonth==='may')mt={s:{lbl:'May Sale',val:fs(sMay),sub:`${sAchM}% of ${fs(sMayT)}`},w:{lbl:'May Walk-ins',val:fi(wMay),sub:`${wAchM}% of ${fi(wMayT)}`},b:{lbl:'May Bills',val:fi(bMay),sub:`conv ${cvM}%`}};
+  else mt={s:{lbl:'Sale Apr + May',val:fs(sApr+sMay),sub:`Apr ${fs(sApr)} (${sAchA}%) · May ${fs(sMay)} (${sAchM}%)`},w:{lbl:'Walk-ins Apr + May',val:fi(wApr+wMay),sub:`Apr ${fi(wApr)} (${wAchA}%) · May ${fi(wMay)} (${wAchM}%)`},b:{lbl:'Bills Apr + May',val:fi(bApr+bMay),sub:`Conv Apr ${cvA}% · May ${cvM}%`}};
+  const monthLabel=_saleMonth==='apr'?'April only':_saleMonth==='may'?'May only':'Apr + May';
   const summary=`
+    <div style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">Showing: <strong>${monthLabel}</strong> — switch via the Apr / May / Both toggle on the Sale tab.</div>
     <div class="metrics" style="margin-bottom:1rem;">
-      <div class="metric green"><div class="lbl">Sale Apr + May</div><div class="val">${fs(sApr+sMay)}</div><div class="sub">Apr ${fs(sApr)} (${sAprT>0?Math.round(sApr/sAprT*100):0}%) · May ${fs(sMay)} (${sMayT>0?Math.round(sMay/sMayT*100):0}%)</div></div>
-      <div class="metric blue"><div class="lbl">Walk-ins Apr + May</div><div class="val">${fi(wApr+wMay)}</div><div class="sub">Apr ${fi(wApr)} (${wAprT>0?Math.round(wApr/wAprT*100):0}%) · May ${fi(wMay)} (${wMayT>0?Math.round(wMay/wMayT*100):0}%)</div></div>
-      <div class="metric amber"><div class="lbl">Bills Apr + May</div><div class="val">${fi(bApr+bMay)}</div><div class="sub">Conv Apr ${wApr>0?(bApr/wApr*100).toFixed(1):'—'}% · May ${wMay>0?(bMay/wMay*100).toFixed(1):'—'}%</div></div>
+      <div class="metric green"><div class="lbl">${mt.s.lbl}</div><div class="val">${mt.s.val}</div><div class="sub">${mt.s.sub}</div></div>
+      <div class="metric blue"><div class="lbl">${mt.w.lbl}</div><div class="val">${mt.w.val}</div><div class="sub">${mt.w.sub}</div></div>
+      <div class="metric amber"><div class="lbl">${mt.b.lbl}</div><div class="val">${mt.b.val}</div><div class="sub">${mt.b.sub}</div></div>
       <div class="metric red"><div class="lbl">Loss-cov%</div><div class="val">${cov}%</div><div class="sub">${fi(totalLoss)} of ${fi(totalNB)} non-buyers</div></div>
     </div>`;
   const tbl=sortableTbl(
-    ['Store','Type','Remark','Walk-ins Apr / May','Walk-ins Cum%','Conv Apr / May','Conv Cum%','Bills Apr / May','Bills Cum%','Sale Apr / May','Sale Cum%','Loss','Loss-cov%'],
+    ['Store','Type','Remark',_saleColHdr('Walk-ins'),'Walk-ins Cum%',_saleColHdr('Conv'),'Conv Cum%',_saleColHdr('Bills'),'Bills Cum%',_saleColHdr('Sale'),'Sale Cum%','Loss','Loss-cov%'],
     joined.sort((a,b)=>b.lossCount-a.lossCount).map(j=>{
       const k=j.kpi;
       return{cells:[
@@ -6569,13 +6614,13 @@ window.showSaleScopeModal=function(scope,value){
           : `<span style="color:var(--muted)">${k.store}</span>`,
         `<span style="font-size:11px;color:var(--muted)">${k.type||'—'}</span>`,
         `<span style="font-size:11px;color:${k.remark==='On Track'?'var(--green)':k.remark==='No Clear Numbers'?'var(--muted)':'var(--red)'};font-weight:600;">${k.remark||'—'}</span>`,
-        _kpiTA2(k.walkins.aprT,k.walkins.aprA,k.walkins.mayT,k.walkins.mayA),
+        _kpiTAm(k.walkins.aprT,k.walkins.aprA,k.walkins.mayT,k.walkins.mayA),
         _kpiAchDisp(k.walkins.cumAch),
-        _kpiConv2(k.conversion.aprA,k.conversion.mayA),
+        _kpiConvm(k.conversion.aprA,k.conversion.mayA),
         _kpiAchDisp(k.conversion.cumAch),
-        _kpiTA2(k.bills.aprT,k.bills.aprA,k.bills.mayT,k.bills.mayA),
+        _kpiTAm(k.bills.aprT,k.bills.aprA,k.bills.mayT,k.bills.mayA),
         _kpiAchDisp(k.bills.cumAch),
-        _kpiTAMoney2(k.sale.aprT,k.sale.aprA,k.sale.mayT,k.sale.mayA),
+        _kpiTAMoneym(k.sale.aprT,k.sale.aprA,k.sale.mayT,k.sale.mayA),
         _kpiAchDisp(k.sale.cumAch),
         fi(j.lossCount),
         `<span class="badge ${bc(j.lossCov)}">${j.lossCov}%</span>`
@@ -6583,7 +6628,7 @@ window.showSaleScopeModal=function(scope,value){
     }),
     null
   );
-  openModal(`💰 ${value} — Store-wise KPI + Loss`,`${scope.toUpperCase()} · ${joined.length} stores · Apr + May`,summary+tbl);
+  openModal(`💰 ${value} — Store-wise KPI + Loss`,`${scope.toUpperCase()} · ${joined.length} stores · ${monthLabel}`,summary+tbl);
 };
 
 </script>
