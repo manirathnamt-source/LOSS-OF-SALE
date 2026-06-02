@@ -1244,6 +1244,258 @@ function getWeekRange(weekKey){
 let _wklyMetric='loss';
 window.setWklyMetric=function(m){_wklyMetric=m;renderWeekly();};
 
+// ── Reusable weekly-comparison helpers (used by both the Weekly tab and the drill-down modal) ──
+function _weeklyBuildRows(weeks,dim,src){
+  const allKeys=new Set();
+  weeks.forEach(w=>{if(src[w])Object.keys(src[w][dim]).forEach(k=>allKeys.add(k));});
+  return[...allKeys].map(k=>{
+    const counts=weeks.map(w=>src[w]&&src[w][dim]?src[w][dim][k]||0:0);
+    const prev=counts[counts.length-2]||0;
+    const curr=counts[counts.length-1]||0;
+    const total=counts.reduce((a,b)=>a+b,0);
+    const wowDelta=curr-prev;
+    const wowPct=prev>0?Math.round((curr-prev)/prev*100):(curr>0?100:0);
+    return{key:k,counts,total,prev,curr,wowDelta,wowPct};
+  }).filter(r=>r.total>0).sort((a,b)=>b.total-a.total);
+}
+function _weeklyWowBadge(delta,pct,upGood){
+  if(delta===0)return'<span class="badge" style="background:#f0f0f0;color:var(--muted);">→ 0</span>';
+  const isUp=delta>0;
+  const isGood=upGood===isUp;
+  const cls=isGood?'badge-green':'badge-red';
+  const arrow=isUp?'▲ +':'▼ ';
+  return`<span class="badge ${cls}">${arrow}${Math.abs(delta)} (${pct>0?'+':''}${pct}%)</span>`;
+}
+function _weeklyBuildTable(label,dim,clickFn,ctx){
+  const{weeks,byWeekLoss,byWeekWk,byWeekPurp,metric}=ctx;
+  const isLoss=metric==='loss';
+  const isWalkin=metric==='walkins';
+  const isBoth=metric==='both';
+  const isPurpose=metric==='purpose';
+  const overallIncreaseGood=isWalkin||isPurpose;
+  if(isBoth){
+    const lossRows=_weeklyBuildRows(weeks,dim,byWeekLoss);
+    const wkRowsAll=_weeklyBuildRows(weeks,dim,byWeekWk);
+    const wkMap=Object.fromEntries(wkRowsAll.map(r=>[r.key,r]));
+    const lossMap=Object.fromEntries(lossRows.map(r=>[r.key,r]));
+    const allKeys=[...new Set([...lossRows.map(r=>r.key),...wkRowsAll.map(r=>r.key)])];
+    if(!allKeys.length)return'';
+    const headers=[label,...weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}<br><span style="font-size:9px;font-weight:500;color:var(--muted);">Loss / Walkins</span></span>`),'Loss total','Walkin total','Loss-cov%','WoW Loss','WoW Walkins'];
+    const tblRows=allKeys.map(k=>{
+      const L=lossMap[k]||{counts:weeks.map(()=>0),total:0,prev:0,curr:0,wowDelta:0,wowPct:0};
+      const W=wkMap[k]||{counts:weeks.map(()=>0),total:0,prev:0,curr:0,wowDelta:0,wowPct:0};
+      const cov=W.total>0?Math.round(L.total/W.total*100):0;
+      return{cells:[
+        clickFn?`<span class="clickable" onclick="${clickFn(k)}">${k}</span>`:`<strong>${k}</strong>`,
+        ...weeks.map((_,i)=>{
+          const l=L.counts[i]||0;const w=W.counts[i]||0;
+          const c=w>0?Math.round(l/w*100):0;
+          return`<span style="font-weight:600;color:var(--red)">${fi(l)}</span> <span style="font-size:10px;color:var(--muted)">/</span> <span style="font-weight:600;color:var(--blue)">${fi(w)}</span><br><span style="font-size:10px;color:${c>=40?'var(--green)':c>=25?'var(--amber)':'var(--red)'};font-weight:600;">${c}%</span>`;
+        }),
+        `<strong style="color:var(--red)">${fi(L.total)}</strong>`,
+        `<strong style="color:var(--blue)">${fi(W.total)}</strong>`,
+        `<span class="badge ${cov>=40?'badge-hi':cov>=25?'badge-mid':'badge-lo'}">${cov}%</span>`,
+        _weeklyWowBadge(L.wowDelta,L.wowPct,false),
+        _weeklyWowBadge(W.wowDelta,W.wowPct,true)
+      ]};
+    }).sort((a,b)=>{
+      const aT=parseInt(String(a.cells[allKeys.length+1]).replace(/[^\d]/g,''))||0;
+      const bT=parseInt(String(b.cells[allKeys.length+1]).replace(/[^\d]/g,''))||0;
+      return bT-aT;
+    });
+    const totalsL=weeks.map(w=>byWeekLoss[w]?.total||0);
+    const totalsW=weeks.map(w=>byWeekWk[w]?.total||0);
+    const tL=totalsL.reduce((a,b)=>a+b,0);
+    const tW=totalsW.reduce((a,b)=>a+b,0);
+    const tCov=tW>0?Math.round(tL/tW*100):0;
+    const totFooter=['Total',
+      ...weeks.map((_,i)=>{const c=totalsW[i]>0?Math.round(totalsL[i]/totalsW[i]*100):0;return`<span style="font-weight:700;color:var(--red)">${fi(totalsL[i])}</span> / <span style="font-weight:700;color:var(--blue)">${fi(totalsW[i])}</span><br><span style="font-size:10px;color:${c>=40?'var(--green)':c>=25?'var(--amber)':'var(--red)'};font-weight:600;">${c}%</span>`;}),
+      fi(tL),fi(tW),`<span class="badge ${tCov>=40?'badge-hi':tCov>=25?'badge-mid':'badge-lo'}">${tCov}%</span>`,
+      _weeklyWowBadge((totalsL[totalsL.length-1]||0)-(totalsL[totalsL.length-2]||0),(totalsL[totalsL.length-2]||0)>0?Math.round(((totalsL[totalsL.length-1]||0)-(totalsL[totalsL.length-2]||0))/(totalsL[totalsL.length-2]||0)*100):0,false),
+      _weeklyWowBadge((totalsW[totalsW.length-1]||0)-(totalsW[totalsW.length-2]||0),(totalsW[totalsW.length-2]||0)>0?Math.round(((totalsW[totalsW.length-1]||0)-(totalsW[totalsW.length-2]||0))/(totalsW[totalsW.length-2]||0)*100):0,true)
+    ];
+    return`<div class="card"><div class="card-title">By ${label.toLowerCase()} (${allKeys.length}) — Loss / Walkins side-by-side with conversion %</div>
+      ${sortableTbl(headers,tblRows,totFooter)}
+    </div>`;
+  }
+  if(isPurpose){
+    const lossRows=_weeklyBuildRows(weeks,dim,byWeekLoss);
+    const purpRows=_weeklyBuildRows(weeks,dim,byWeekPurp);
+    const lossMap=Object.fromEntries(lossRows.map(r=>[r.key,r]));
+    const purpMap=Object.fromEntries(purpRows.map(r=>[r.key,r]));
+    const allKeys=[...new Set([...lossRows.map(r=>r.key),...purpRows.map(r=>r.key)])];
+    if(!allKeys.length)return'';
+    const headers=[label,...weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}<br><span style="font-size:9px;font-weight:500;color:var(--muted);">With purpose / Loss</span></span>`),'Captured','Loss total','Capture%','WoW Capture%'];
+    const tblRows=allKeys.map(k=>{
+      const L=lossMap[k]||{counts:weeks.map(()=>0),total:0};
+      const P=purpMap[k]||{counts:weeks.map(()=>0),total:0};
+      const cap=L.total>0?Math.round(P.total/L.total*100):0;
+      const lastL=L.counts[L.counts.length-1]||0;
+      const prevL=L.counts[L.counts.length-2]||0;
+      const lastP=P.counts[P.counts.length-1]||0;
+      const prevP=P.counts[P.counts.length-2]||0;
+      const lastCap=lastL>0?Math.round(lastP/lastL*100):0;
+      const prevCap=prevL>0?Math.round(prevP/prevL*100):0;
+      const capDelta=lastCap-prevCap;
+      return{cells:[
+        clickFn?`<span class="clickable" onclick="${clickFn(k)}">${k}</span>`:`<strong>${k}</strong>`,
+        ...weeks.map((_,i)=>{
+          const l=L.counts[i]||0;const p=P.counts[i]||0;
+          const c=l>0?Math.round(p/l*100):0;
+          return`<span style="font-weight:600;color:var(--green)">${fi(p)}</span> <span style="font-size:10px;color:var(--muted)">/</span> <span style="font-weight:600;color:var(--red)">${fi(l)}</span><br><span style="font-size:10px;color:${c>=70?'var(--green)':c>=30?'var(--amber)':'var(--red)'};font-weight:600;">${l>0?c+'%':'—'}</span>`;
+        }),
+        `<strong style="color:var(--green)">${fi(P.total)}</strong>`,
+        `<strong style="color:var(--red)">${fi(L.total)}</strong>`,
+        `<span class="badge ${cap>=70?'badge-green':cap>=30?'badge-amber':'badge-red'}">${cap}%</span>`,
+        (function(){
+          if(prevL===0&&lastL===0)return'<span class="badge" style="background:#f0f0f0;color:var(--muted);">—</span>';
+          const arrow=capDelta>0?'▲ +':capDelta<0?'▼ ':'→ ';
+          const cls=capDelta>0?'badge-green':capDelta<0?'badge-red':'';
+          return`<span class="badge ${cls}" style="${capDelta===0?'background:#f0f0f0;color:var(--muted);':''}">${arrow}${Math.abs(capDelta)} pts</span>`;
+        })()
+      ]};
+    }).sort((a,b)=>{
+      const ax=String(a.cells[weeks.length+3]).match(/(-?\d+)/);
+      const bx=String(b.cells[weeks.length+3]).match(/(-?\d+)/);
+      return(ax?+ax[1]:0)-(bx?+bx[1]:0);
+    });
+    const totalsL=weeks.map(w=>byWeekLoss[w]?.total||0);
+    const totalsP=weeks.map(w=>byWeekPurp[w]?.total||0);
+    const tL=totalsL.reduce((a,b)=>a+b,0);
+    const tP=totalsP.reduce((a,b)=>a+b,0);
+    const tCap=tL>0?Math.round(tP/tL*100):0;
+    const lastL=totalsL[totalsL.length-1]||0,prevL=totalsL[totalsL.length-2]||0;
+    const lastP=totalsP[totalsP.length-1]||0,prevP=totalsP[totalsP.length-2]||0;
+    const lastCap=lastL>0?Math.round(lastP/lastL*100):0;
+    const prevCap=prevL>0?Math.round(prevP/prevL*100):0;
+    const capDelta=lastCap-prevCap;
+    const arrow=capDelta>0?'▲ +':capDelta<0?'▼ ':'→ ';
+    const cls=capDelta>0?'badge-green':capDelta<0?'badge-red':'';
+    const totFooter=['Total',
+      ...weeks.map((_,i)=>{const c=totalsL[i]>0?Math.round(totalsP[i]/totalsL[i]*100):0;return`<span style="font-weight:700;color:var(--green)">${fi(totalsP[i])}</span> / <span style="font-weight:700;color:var(--red)">${fi(totalsL[i])}</span><br><span style="font-size:10px;color:${c>=70?'var(--green)':c>=30?'var(--amber)':'var(--red)'};font-weight:600;">${totalsL[i]>0?c+'%':'—'}</span>`;}),
+      fi(tP),fi(tL),`<span class="badge ${tCap>=70?'badge-green':tCap>=30?'badge-amber':'badge-red'}">${tCap}%</span>`,
+      `<span class="badge ${cls}" style="${capDelta===0?'background:#f0f0f0;color:var(--muted);':''}">${arrow}${Math.abs(capDelta)} pts</span>`
+    ];
+    return`<div class="card"><div class="card-title">By ${label.toLowerCase()} (${allKeys.length}) — Purpose collection (worst capture% first)</div>
+      ${sortableTbl(headers,tblRows,totFooter)}
+    </div>`;
+  }
+  // Single-metric view (loss or walkin)
+  const src=isLoss?byWeekLoss:byWeekWk;
+  const dimRows=_weeklyBuildRows(weeks,dim,src);
+  if(!dimRows.length)return'';
+  const headers=[label,...weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}</span>`),'Total','WoW Δ (last vs prev)'];
+  const tblRows=dimRows.map(r=>({
+    cells:[
+      clickFn?`<span class="clickable" onclick="${clickFn(r.key)}">${r.key}</span>`:`<strong>${r.key}</strong>`,
+      ...r.counts.map(c=>fi(c)),
+      `<strong>${fi(r.total)}</strong>`,
+      _weeklyWowBadge(r.wowDelta,r.wowPct,overallIncreaseGood)
+    ]
+  }));
+  const totals=weeks.map(w=>src[w]?.total||0);
+  const totFooter=['Total',...totals.map(c=>fi(c)),fi(totals.reduce((a,b)=>a+b,0)),_weeklyWowBadge(totals[totals.length-1]-totals[totals.length-2],totals[totals.length-2]>0?Math.round((totals[totals.length-1]-totals[totals.length-2])/totals[totals.length-2]*100):0,overallIncreaseGood)];
+  return`<div class="card"><div class="card-title">By ${label.toLowerCase()} (${dimRows.length})</div>
+    ${sortableTbl(headers,tblRows,totFooter)}
+  </div>`;
+}
+// Bucket loss-rows + walkin-stores into week-keyed maps by RM/Cluster/Market/Store
+function _weeklyBuildBuckets(lsRows,wkStores,f){
+  const{storeIdx,purposeIdx}=_LS_IDX;
+  const byWeekLoss={};
+  const byWeekPurp={};
+  lsRows.forEach(r=>{
+    const wk=getWeekKey(r._dk);
+    if(!wk)return;
+    if(!byWeekLoss[wk])byWeekLoss[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+    byWeekLoss[wk].total++;
+    const rm=r._rm||'Unknown';
+    byWeekLoss[wk].byRM[rm]=(byWeekLoss[wk].byRM[rm]||0)+1;
+    const ws=r._wkStore;
+    const cluster=ws?ws.cluster:'(unsynced)';
+    const market=ws?ws.market:'(unsynced)';
+    byWeekLoss[wk].byCluster[cluster]=(byWeekLoss[wk].byCluster[cluster]||0)+1;
+    byWeekLoss[wk].byMarket[market]=(byWeekLoss[wk].byMarket[market]||0)+1;
+    const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
+    byWeekLoss[wk].byStore[store]=(byWeekLoss[wk].byStore[store]||0)+1;
+    if(purposeIdx>=0&&String(r[purposeIdx]||'').trim()){
+      if(!byWeekPurp[wk])byWeekPurp[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+      byWeekPurp[wk].total++;
+      byWeekPurp[wk].byRM[rm]=(byWeekPurp[wk].byRM[rm]||0)+1;
+      byWeekPurp[wk].byCluster[cluster]=(byWeekPurp[wk].byCluster[cluster]||0)+1;
+      byWeekPurp[wk].byMarket[market]=(byWeekPurp[wk].byMarket[market]||0)+1;
+      byWeekPurp[wk].byStore[store]=(byWeekPurp[wk].byStore[store]||0)+1;
+    }
+  });
+  const byWeekWk={};
+  wkStores.forEach(s=>{
+    s.days.forEach(d=>{
+      if(!dateInRange(d.dk,f))return;
+      const wk=getWeekKey(d.dk);
+      if(!wk)return;
+      if(!byWeekWk[wk])byWeekWk[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+      byWeekWk[wk].total+=d.w;
+      byWeekWk[wk].byRM[s.rm]=(byWeekWk[wk].byRM[s.rm]||0)+d.w;
+      byWeekWk[wk].byCluster[s.cluster]=(byWeekWk[wk].byCluster[s.cluster]||0)+d.w;
+      byWeekWk[wk].byMarket[s.market]=(byWeekWk[wk].byMarket[s.market]||0)+d.w;
+      byWeekWk[wk].byStore[s.outlet]=(byWeekWk[wk].byStore[s.outlet]||0)+d.w;
+    });
+  });
+  const weeks=[...new Set([...Object.keys(byWeekLoss),...Object.keys(byWeekWk)])].sort();
+  return{weeks,byWeekLoss,byWeekWk,byWeekPurp};
+}
+
+// Drill-down: store-wise weekly comparison for a single Market / Cluster / RM
+window.showWeeklyDrill=function(scope,value){
+  const f=getFilters();
+  // Scope down loss rows + walkin stores to the chosen market/cluster/rm
+  const isMarket=scope==='market',isCluster=scope==='cluster',isRm=scope==='rm';
+  const lsRows=filterLS(f).filter(r=>{
+    const ws=r._wkStore;
+    if(isMarket){const v=ws?ws.market:'(unsynced)';return v===value;}
+    if(isCluster){const v=ws?ws.cluster:'(unsynced)';return v===value;}
+    if(isRm)return(r._rm||'Unknown')===value;
+    return true;
+  });
+  const wkStores=filterStores(_WK.stores,f).filter(s=>{
+    if(isMarket)return s.market===value;
+    if(isCluster)return s.cluster===value;
+    if(isRm)return s.rm===value;
+    return true;
+  });
+  const ctx=_weeklyBuildBuckets(lsRows,wkStores,f);
+  ctx.metric=_wklyMetric;
+  const{weeks}=ctx;
+  if(weeks.length<2){
+    openModal(`📅 ${value} — store-wise weekly`,`${scope.toUpperCase()} · only ${weeks.length} week${weeks.length===1?'':'s'} of data — need ≥2 for WoW comparison.`,
+      `<p class="muted-note" style="padding:1rem;">Not enough weeks of data within this ${scope}.</p>`);
+    return;
+  }
+  // Summary row
+  const totalAllLoss=weeks.reduce((s,w)=>s+(ctx.byWeekLoss[w]?.total||0),0);
+  const totalAllWk=weeks.reduce((s,w)=>s+(ctx.byWeekWk[w]?.total||0),0);
+  const totalAllPurp=weeks.reduce((s,w)=>s+(ctx.byWeekPurp[w]?.total||0),0);
+  const lastL=ctx.byWeekLoss[weeks[weeks.length-1]]?.total||0;
+  const prevL=ctx.byWeekLoss[weeks[weeks.length-2]]?.total||0;
+  const dLoss=lastL-prevL;
+  const lastW=ctx.byWeekWk[weeks[weeks.length-1]]?.total||0;
+  const prevW=ctx.byWeekWk[weeks[weeks.length-2]]?.total||0;
+  const dWk=lastW-prevW;
+  const cap=totalAllLoss>0?Math.round(totalAllPurp/totalAllLoss*100):0;
+  const scopeStores=new Set();
+  wkStores.forEach(s=>scopeStores.add(s.outlet));
+  const subline=`${scopeStores.size} stores · ${weeks.length} weeks (${getWeekRange(weeks[0])} → ${getWeekRange(weeks[weeks.length-1])}) · Mode: ${_wklyMetric}`;
+  const summary=`
+    <div class="metrics" style="margin-bottom:1rem;">
+      <div class="metric red"><div class="lbl">Loss entries</div><div class="val">${fi(totalAllLoss)}</div><div class="sub">Latest ${fi(lastL)} · Δ ${dLoss>0?'+':''}${fi(dLoss)}</div></div>
+      <div class="metric blue"><div class="lbl">Walkins</div><div class="val">${fi(totalAllWk)}</div><div class="sub">Latest ${fi(lastW)} · Δ ${dWk>0?'+':''}${fi(dWk)}</div></div>
+      <div class="metric amber"><div class="lbl">Loss-cov%</div><div class="val">${totalAllWk>0?Math.round(totalAllLoss/totalAllWk*100):0}%</div><div class="sub">loss / walkins</div></div>
+      <div class="metric ${cap>=70?'green':cap>=30?'amber':'red'}"><div class="lbl">Purpose capture</div><div class="val">${cap}%</div><div class="sub">${fi(totalAllPurp)} of ${fi(totalAllLoss)}</div></div>
+    </div>`;
+  const tbl=_weeklyBuildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\'")}')`,ctx);
+  openModal(`📅 ${value} — store-wise weekly comparison`,subline,summary+(tbl||'<p class="muted-note">No store-level data in this scope.</p>'));
+};
+
 function renderWeekly(){
   const f=getFilters();
   const rows=filterLS(f);
@@ -1542,9 +1794,9 @@ function renderWeekly(){
       `}
     </div>
 
-    ${buildTable('Market','byMarket',null)}
-    ${buildTable('Cluster','byCluster',null)}
-    ${buildTable('RM','byRM',null)}
+    ${buildTable('Market','byMarket',k=>`showWeeklyDrill('market','${k.replace(/'/g,"\\\\'")}')`)}
+    ${buildTable('Cluster','byCluster',k=>`showWeeklyDrill('cluster','${k.replace(/'/g,"\\\\'")}')`)}
+    ${buildTable('RM','byRM',k=>`showWeeklyDrill('rm','${k.replace(/'/g,"\\\\'")}')`)}
     ${buildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\\\'")}')`)}`;
 }
 
