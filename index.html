@@ -6198,6 +6198,29 @@ function _kpiTAMoney(t,a){
 }
 function _kpiConv(v){return v==null?'<span style="color:var(--muted)">—</span>':`${(v*100).toFixed(1)}%`;}
 
+// 2-month stacked variants — render Apr + May in one cell (compact)
+function _kpiClr(t,a){if(t==null||t===0||a==null)return'';const p=Math.round(a/t*100);return p>=100?'var(--green)':p>=80?'var(--amber)':'var(--red)';}
+function _kpiTA2(aT,aA,mT,mA){
+  if(aT==null&&aA==null&&mT==null&&mA==null)return'<span style="color:var(--muted)">—</span>';
+  const aDisp=(aT==null&&aA==null)?'—':`${fi(aA||0)}<span style="color:var(--muted);font-size:9px;"> / ${fi(aT||0)}</span>`;
+  const mDisp=(mT==null&&mA==null)?'—':`${fi(mA||0)}<span style="color:var(--muted);font-size:9px;"> / ${fi(mT||0)}</span>`;
+  return `<div style="font-size:11px;line-height:1.35;"><div><span style="color:var(--muted);font-size:9px;font-weight:600;">APR</span> <span style="color:${_kpiClr(aT,aA)};font-weight:600;">${aDisp}</span></div><div><span style="color:var(--muted);font-size:9px;font-weight:600;">MAY</span> <span style="color:${_kpiClr(mT,mA)};font-weight:600;">${mDisp}</span></div></div>`;
+}
+function _kpiTAMoney2(aT,aA,mT,mA){
+  if(aT==null&&aA==null&&mT==null&&mA==null)return'<span style="color:var(--muted)">—</span>';
+  const aDisp=(aT==null&&aA==null)?'—':`${fs(aA||0)}<span style="color:var(--muted);font-size:9px;"> / ${fs(aT||0)}</span>`;
+  const mDisp=(mT==null&&mA==null)?'—':`${fs(mA||0)}<span style="color:var(--muted);font-size:9px;"> / ${fs(mT||0)}</span>`;
+  return `<div style="font-size:11px;line-height:1.35;"><div><span style="color:var(--muted);font-size:9px;font-weight:600;">APR</span> <span style="color:${_kpiClr(aT,aA)};font-weight:600;">${aDisp}</span></div><div><span style="color:var(--muted);font-size:9px;font-weight:600;">MAY</span> <span style="color:${_kpiClr(mT,mA)};font-weight:600;">${mDisp}</span></div></div>`;
+}
+function _kpiNum2(aA,mA){
+  if(aA==null&&mA==null)return'<span style="color:var(--muted)">—</span>';
+  return `<div style="font-size:11px;line-height:1.35;"><div><span style="color:var(--muted);font-size:9px;font-weight:600;">APR</span> <strong>${aA==null?'—':fi(aA)}</strong></div><div><span style="color:var(--muted);font-size:9px;font-weight:600;">MAY</span> <strong>${mA==null?'—':fi(mA)}</strong></div></div>`;
+}
+function _kpiConv2(aA,mA){
+  if(aA==null&&mA==null)return'<span style="color:var(--muted)">—</span>';
+  return `<div style="font-size:11px;line-height:1.35;"><div><span style="color:var(--muted);font-size:9px;font-weight:600;">APR</span> ${aA==null?'—':(aA*100).toFixed(1)+'%'}</div><div><span style="color:var(--muted);font-size:9px;font-weight:600;">MAY</span> ${mA==null?'—':(mA*100).toFixed(1)+'%'}</div></div>`;
+}
+
 // Build a per-store joined row: KPI + loss stats (within current filters)
 function _kpiJoined(f){
   const{storeIdx,reasonIdx}=_LS_IDX;
@@ -6299,41 +6322,51 @@ function renderSale(){
   });
   const remarkArr=Object.entries(remarkMap).sort((a,b)=>b[1].count-a[1].count);
 
-  // Per-market aggregation
+  // Per-market aggregation (Apr + May)
   const mktMap={};
   joined.forEach(j=>{
     const m=j.kpi.market||'(blank)';
-    if(!mktMap[m])mktMap[m]={count:0,wkMayT:0,wkMayA:0,billsMayA:0,saleMayT:0,saleMayA:0,loss:0,nb:0,cumAchSum:0,cumAchN:0};
+    if(!mktMap[m])mktMap[m]={count:0,wkAprT:0,wkAprA:0,wkMayT:0,wkMayA:0,billsAprA:0,billsMayA:0,saleAprT:0,saleAprA:0,saleMayT:0,saleMayA:0,loss:0,nb:0,cumAchSum:0,cumAchN:0};
     const o=mktMap[m];
     o.count++;
+    o.wkAprT+=j.kpi.walkins.aprT||0;
+    o.wkAprA+=j.kpi.walkins.aprA||0;
     o.wkMayT+=j.kpi.walkins.mayT||0;
     o.wkMayA+=j.kpi.walkins.mayA||0;
+    o.billsAprA+=j.kpi.bills.aprA||0;
     o.billsMayA+=j.kpi.bills.mayA||0;
+    o.saleAprT+=j.kpi.sale.aprT||0;
+    o.saleAprA+=j.kpi.sale.aprA||0;
     o.saleMayT+=j.kpi.sale.mayT||0;
     o.saleMayA+=j.kpi.sale.mayA||0;
     o.loss+=j.lossCount;
     o.nb+=j.nb;
     if(j.kpi.sale.cumAch!=null){o.cumAchSum+=j.kpi.sale.cumAch;o.cumAchN++;}
   });
-  const mktArr=Object.entries(mktMap).sort((a,b)=>b[1].saleMayA-a[1].saleMayA);
+  const mktArr=Object.entries(mktMap).sort((a,b)=>(b[1].saleAprA+b[1].saleMayA)-(a[1].saleAprA+a[1].saleMayA));
 
-  // Per-RM aggregation
+  // Per-RM aggregation (Apr + May)
   const rmMap={};
   joined.forEach(j=>{
     const r=j.kpi.rm||'(blank)';
-    if(!rmMap[r])rmMap[r]={count:0,wkMayT:0,wkMayA:0,billsMayA:0,saleMayT:0,saleMayA:0,loss:0,nb:0,cumAchSum:0,cumAchN:0};
+    if(!rmMap[r])rmMap[r]={count:0,wkAprT:0,wkAprA:0,wkMayT:0,wkMayA:0,billsAprA:0,billsMayA:0,saleAprT:0,saleAprA:0,saleMayT:0,saleMayA:0,loss:0,nb:0,cumAchSum:0,cumAchN:0};
     const o=rmMap[r];
     o.count++;
+    o.wkAprT+=j.kpi.walkins.aprT||0;
+    o.wkAprA+=j.kpi.walkins.aprA||0;
     o.wkMayT+=j.kpi.walkins.mayT||0;
     o.wkMayA+=j.kpi.walkins.mayA||0;
+    o.billsAprA+=j.kpi.bills.aprA||0;
     o.billsMayA+=j.kpi.bills.mayA||0;
+    o.saleAprT+=j.kpi.sale.aprT||0;
+    o.saleAprA+=j.kpi.sale.aprA||0;
     o.saleMayT+=j.kpi.sale.mayT||0;
     o.saleMayA+=j.kpi.sale.mayA||0;
     o.loss+=j.lossCount;
     o.nb+=j.nb;
     if(j.kpi.sale.cumAch!=null){o.cumAchSum+=j.kpi.sale.cumAch;o.cumAchN++;}
   });
-  const rmArr=Object.entries(rmMap).sort((a,b)=>b[1].saleMayA-a[1].saleMayA);
+  const rmArr=Object.entries(rmMap).sort((a,b)=>(b[1].saleAprA+b[1].saleMayA)-(a[1].saleAprA+a[1].saleMayA));
 
   // ── Insight buckets ──
   const lowConvHighLoss=joined.filter(j=>j.kpi.conversion.cumAch!=null&&j.kpi.conversion.cumAch<90&&j.lossCount>=5)
@@ -6356,41 +6389,41 @@ function renderSale(){
   );
 
   const mktTbl=sortableTbl(
-    ['Market','Stores','May Walk-ins (A/T)','May Bills','May Sale (A/T)','Cum Sale Ach%','Loss entries','Loss-cov%'],
+    ['Market','Stores','Walk-ins Apr / May (Ach/Tgt)','Bills Apr / May','Sale Apr / May (Ach/Tgt)','Cum Sale Ach%','Loss entries','Loss-cov%'],
     mktArr.map(([k,v])=>{
       const cov=v.nb>0?Math.round(v.loss/v.nb*100):0;
       const avgCum=v.cumAchN>0?Math.round(v.cumAchSum/v.cumAchN):null;
       return{cells:[
         `<span class="clickable" onclick="showSaleScopeModal('market','${k.replace(/'/g,"\\'")}')">${k}</span>`,
         fi(v.count),
-        _kpiTA(v.wkMayT,v.wkMayA),
-        fi(v.billsMayA),
-        _kpiTAMoney(v.saleMayT,v.saleMayA),
+        _kpiTA2(v.wkAprT,v.wkAprA,v.wkMayT,v.wkMayA),
+        _kpiNum2(v.billsAprA,v.billsMayA),
+        _kpiTAMoney2(v.saleAprT,v.saleAprA,v.saleMayT,v.saleMayA),
         _kpiAchDisp(avgCum),
         fi(v.loss),
         `<span class="badge ${bc(cov)}">${cov}%</span>`
       ]};
     }),
-    ['Total',fi(joined.length),_kpiTA(totalWkMayT,totalWkMayA),fi(totalBillsMayA),_kpiTAMoney(totalSaleMayT,totalSaleMayA),'',fi(totalLoss),`<span class="badge ${bc(overallLossCov)}">${overallLossCov}%</span>`]
+    ['Total',fi(joined.length),_kpiTA2(totalWkAprT,totalWkAprA,totalWkMayT,totalWkMayA),_kpiNum2(totalBillsAprA,totalBillsMayA),_kpiTAMoney2(totalSaleAprT,totalSaleAprA,totalSaleMayT,totalSaleMayA),'',fi(totalLoss),`<span class="badge ${bc(overallLossCov)}">${overallLossCov}%</span>`]
   );
 
   const rmTbl=sortableTbl(
-    ['RM','Stores','May Walk-ins (A/T)','May Bills','May Sale (A/T)','Cum Sale Ach%','Loss entries','Loss-cov%'],
+    ['RM','Stores','Walk-ins Apr / May (Ach/Tgt)','Bills Apr / May','Sale Apr / May (Ach/Tgt)','Cum Sale Ach%','Loss entries','Loss-cov%'],
     rmArr.map(([k,v])=>{
       const cov=v.nb>0?Math.round(v.loss/v.nb*100):0;
       const avgCum=v.cumAchN>0?Math.round(v.cumAchSum/v.cumAchN):null;
       return{cells:[
         `<span class="clickable" onclick="showSaleScopeModal('rm','${k.replace(/'/g,"\\'")}')">${k}</span>`,
         fi(v.count),
-        _kpiTA(v.wkMayT,v.wkMayA),
-        fi(v.billsMayA),
-        _kpiTAMoney(v.saleMayT,v.saleMayA),
+        _kpiTA2(v.wkAprT,v.wkAprA,v.wkMayT,v.wkMayA),
+        _kpiNum2(v.billsAprA,v.billsMayA),
+        _kpiTAMoney2(v.saleAprT,v.saleAprA,v.saleMayT,v.saleMayA),
         _kpiAchDisp(avgCum),
         fi(v.loss),
         `<span class="badge ${bc(cov)}">${cov}%</span>`
       ]};
     }),
-    ['Total',fi(joined.length),_kpiTA(totalWkMayT,totalWkMayA),fi(totalBillsMayA),_kpiTAMoney(totalSaleMayT,totalSaleMayA),'',fi(totalLoss),`<span class="badge ${bc(overallLossCov)}">${overallLossCov}%</span>`]
+    ['Total',fi(joined.length),_kpiTA2(totalWkAprT,totalWkAprA,totalWkMayT,totalWkMayA),_kpiNum2(totalBillsAprA,totalBillsMayA),_kpiTAMoney2(totalSaleAprT,totalSaleAprA,totalSaleMayT,totalSaleMayA),'',fi(totalLoss),`<span class="badge ${bc(overallLossCov)}">${overallLossCov}%</span>`]
   );
 
   const storeRowHTML=j=>{
@@ -6407,13 +6440,13 @@ function renderSale(){
       `<span style="font-size:11px;color:var(--muted)">${k.rm}</span>`,
       `<span style="font-size:11px;color:var(--muted)">${k.type||'—'}</span>`,
       `<span style="font-size:11px;color:${k.remark==='On Track'?'var(--green)':k.remark==='No Clear Numbers'?'var(--muted)':'var(--red)'};font-weight:600;">${k.remark||'—'}</span>`,
-      _kpiTA(k.walkins.mayT,k.walkins.mayA),
+      _kpiTA2(k.walkins.aprT,k.walkins.aprA,k.walkins.mayT,k.walkins.mayA),
       _kpiAchDisp(k.walkins.cumAch),
-      _kpiConv(k.conversion.mayA),
+      _kpiConv2(k.conversion.aprA,k.conversion.mayA),
       _kpiAchDisp(k.conversion.cumAch),
-      _kpiTA(k.bills.mayT,k.bills.mayA),
+      _kpiTA2(k.bills.aprT,k.bills.aprA,k.bills.mayT,k.bills.mayA),
       _kpiAchDisp(k.bills.cumAch),
-      _kpiTAMoney(k.sale.mayT,k.sale.mayA),
+      _kpiTAMoney2(k.sale.aprT,k.sale.aprA,k.sale.mayT,k.sale.mayA),
       _kpiAchDisp(k.sale.cumAch),
       fi(j.lossCount),
       `<span class="badge ${bc(cov)}">${cov}%</span>`,
@@ -6422,7 +6455,7 @@ function renderSale(){
   };
 
   const storeTbl=sortableTbl(
-    ['Store','Market','RM','Type','Remark','May Walk-ins','Walk-ins Ach%','May Conv','Conv Ach%','May Bills','Bills Ach%','May Sale','Sale Ach%','Loss','Loss-cov%','Top reason'],
+    ['Store','Market','RM','Type','Remark','Walk-ins Apr / May','Walk-ins Cum%','Conv Apr / May','Conv Cum%','Bills Apr / May','Bills Cum%','Sale Apr / May','Sale Cum%','Loss','Loss-cov%','Top reason'],
     joined.sort((a,b)=>b.lossCount-a.lossCount).map(storeRowHTML),
     null
   );
@@ -6461,9 +6494,9 @@ function renderSale(){
 
     <div class="metrics" style="margin-bottom:1.25rem;">
       <div class="metric"><div class="lbl">Stores tracked</div><div class="val">${joined.length}</div><div class="sub">${matched} matched to loss data</div></div>
-      <div class="metric green"><div class="lbl">May Sale</div><div class="val">${fs(totalSaleMayA)}</div><div class="sub">${saleAchMay}% of ${fs(totalSaleMayT)} target</div></div>
-      <div class="metric blue"><div class="lbl">May Walk-ins</div><div class="val">${fi(totalWkMayA)}</div><div class="sub">${wkAchMay}% of ${fi(totalWkMayT)} target</div></div>
-      <div class="metric amber"><div class="lbl">May Conversion</div><div class="val">${convMay}%</div><div class="sub">bills / walk-ins (weighted)</div></div>
+      <div class="metric green"><div class="lbl">Sale Apr + May</div><div class="val">${fs(totalSaleAprA+totalSaleMayA)}</div><div class="sub">Apr ${fs(totalSaleAprA)} (${totalSaleAprT>0?Math.round(totalSaleAprA/totalSaleAprT*100):0}%) · May ${fs(totalSaleMayA)} (${saleAchMay}%)</div></div>
+      <div class="metric blue"><div class="lbl">Walk-ins Apr + May</div><div class="val">${fi(totalWkAprA+totalWkMayA)}</div><div class="sub">Apr ${fi(totalWkAprA)} (${totalWkAprT>0?Math.round(totalWkAprA/totalWkAprT*100):0}%) · May ${fi(totalWkMayA)} (${wkAchMay}%)</div></div>
+      <div class="metric amber"><div class="lbl">Conversion (weighted)</div><div class="val">${convMay}%</div><div class="sub">Apr ${totalWkAprA>0?(totalBillsAprA/totalWkAprA*100).toFixed(1):'—'}% · May ${convMay}%</div></div>
       <div class="metric red"><div class="lbl">Loss entries</div><div class="val">${fi(totalLoss)}</div><div class="sub">${overallLossCov}% of ${fi(totalNB)} non-buyers</div></div>
     </div>
 
@@ -6514,18 +6547,20 @@ window.showSaleScopeModal=function(scope,value){
   const totalNB=joined.reduce((s,j)=>s+j.nb,0);
   const cov=totalNB>0?Math.round(totalLoss/totalNB*100):0;
   const sumK=key=>joined.reduce((s,j)=>{const[g,k]=key.split('.');return s+(j.kpi[g][k]||0);},0);
+  const sApr=sumK('sale.aprA'),sAprT=sumK('sale.aprT');
   const sMay=sumK('sale.mayA'),sMayT=sumK('sale.mayT');
+  const wApr=sumK('walkins.aprA'),wAprT=sumK('walkins.aprT');
   const wMay=sumK('walkins.mayA'),wMayT=sumK('walkins.mayT');
-  const bMay=sumK('bills.mayA');
+  const bApr=sumK('bills.aprA'),bMay=sumK('bills.mayA');
   const summary=`
     <div class="metrics" style="margin-bottom:1rem;">
-      <div class="metric green"><div class="lbl">May Sale</div><div class="val">${fs(sMay)}</div><div class="sub">${sMayT>0?Math.round(sMay/sMayT*100):0}% of ${fs(sMayT)}</div></div>
-      <div class="metric blue"><div class="lbl">May Walk-ins</div><div class="val">${fi(wMay)}</div><div class="sub">${wMayT>0?Math.round(wMay/wMayT*100):0}% of ${fi(wMayT)}</div></div>
-      <div class="metric amber"><div class="lbl">May Bills</div><div class="val">${fi(bMay)}</div><div class="sub">conv ${wMay>0?(bMay/wMay*100).toFixed(1):'—'}%</div></div>
+      <div class="metric green"><div class="lbl">Sale Apr + May</div><div class="val">${fs(sApr+sMay)}</div><div class="sub">Apr ${fs(sApr)} (${sAprT>0?Math.round(sApr/sAprT*100):0}%) · May ${fs(sMay)} (${sMayT>0?Math.round(sMay/sMayT*100):0}%)</div></div>
+      <div class="metric blue"><div class="lbl">Walk-ins Apr + May</div><div class="val">${fi(wApr+wMay)}</div><div class="sub">Apr ${fi(wApr)} (${wAprT>0?Math.round(wApr/wAprT*100):0}%) · May ${fi(wMay)} (${wMayT>0?Math.round(wMay/wMayT*100):0}%)</div></div>
+      <div class="metric amber"><div class="lbl">Bills Apr + May</div><div class="val">${fi(bApr+bMay)}</div><div class="sub">Conv Apr ${wApr>0?(bApr/wApr*100).toFixed(1):'—'}% · May ${wMay>0?(bMay/wMay*100).toFixed(1):'—'}%</div></div>
       <div class="metric red"><div class="lbl">Loss-cov%</div><div class="val">${cov}%</div><div class="sub">${fi(totalLoss)} of ${fi(totalNB)} non-buyers</div></div>
     </div>`;
   const tbl=sortableTbl(
-    ['Store','Type','Remark','May Walk-ins','Walk-ins Ach%','May Conv','Conv Ach%','May Bills','Bills Ach%','May Sale','Sale Ach%','Loss','Loss-cov%'],
+    ['Store','Type','Remark','Walk-ins Apr / May','Walk-ins Cum%','Conv Apr / May','Conv Cum%','Bills Apr / May','Bills Cum%','Sale Apr / May','Sale Cum%','Loss','Loss-cov%'],
     joined.sort((a,b)=>b.lossCount-a.lossCount).map(j=>{
       const k=j.kpi;
       return{cells:[
@@ -6534,13 +6569,13 @@ window.showSaleScopeModal=function(scope,value){
           : `<span style="color:var(--muted)">${k.store}</span>`,
         `<span style="font-size:11px;color:var(--muted)">${k.type||'—'}</span>`,
         `<span style="font-size:11px;color:${k.remark==='On Track'?'var(--green)':k.remark==='No Clear Numbers'?'var(--muted)':'var(--red)'};font-weight:600;">${k.remark||'—'}</span>`,
-        _kpiTA(k.walkins.mayT,k.walkins.mayA),
+        _kpiTA2(k.walkins.aprT,k.walkins.aprA,k.walkins.mayT,k.walkins.mayA),
         _kpiAchDisp(k.walkins.cumAch),
-        _kpiConv(k.conversion.mayA),
+        _kpiConv2(k.conversion.aprA,k.conversion.mayA),
         _kpiAchDisp(k.conversion.cumAch),
-        _kpiTA(k.bills.mayT,k.bills.mayA),
+        _kpiTA2(k.bills.aprT,k.bills.aprA,k.bills.mayT,k.bills.mayA),
         _kpiAchDisp(k.bills.cumAch),
-        _kpiTAMoney(k.sale.mayT,k.sale.mayA),
+        _kpiTAMoney2(k.sale.aprT,k.sale.aprA,k.sale.mayT,k.sale.mayA),
         _kpiAchDisp(k.sale.cumAch),
         fi(j.lossCount),
         `<span class="badge ${bc(j.lossCov)}">${j.lossCov}%</span>`
@@ -6548,7 +6583,7 @@ window.showSaleScopeModal=function(scope,value){
     }),
     null
   );
-  openModal(`💰 ${value} — Store-wise KPI + Loss`,`${scope.toUpperCase()} · ${joined.length} stores`,summary+tbl);
+  openModal(`💰 ${value} — Store-wise KPI + Loss`,`${scope.toUpperCase()} · ${joined.length} stores · Apr + May`,summary+tbl);
 };
 
 </script>
