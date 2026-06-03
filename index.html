@@ -101,7 +101,21 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
 .section-lbl{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
 .loading{padding:3rem;text-align:center;color:var(--muted);font-size:14px;}
 .err-card{padding:1.5rem;background:#fdeaea;border-radius:var(--radius);color:#a32020;font-size:13px;margin-bottom:1rem;}
-@media(max-width:700px){.insights{grid-template-columns:1fr;}.metrics{grid-template-columns:1fr 1fr;}.two-col{grid-template-columns:1fr;}}
+.kpi-matrix{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;}
+.kpi-quad{padding:14px 16px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:transform .15s,box-shadow .15s;background:var(--surface);}
+.kpi-quad:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,0.08);}
+.kpi-quad-tt{background:#e8f9ec;border-color:#b8e3c1;}
+.kpi-quad-tf{background:#fff8e1;border-color:#f5d499;}
+.kpi-quad-ft{background:#fef4e8;border-color:#f0c8a0;}
+.kpi-quad-ff{background:#fdeaea;border-color:#e8b5b5;}
+[data-theme="dark"] .kpi-quad-tt{background:#1c3220;border-color:#3a5c3f;}
+[data-theme="dark"] .kpi-quad-tf{background:#3a2f15;border-color:#705a2c;}
+[data-theme="dark"] .kpi-quad-ft{background:#3a2a18;border-color:#6e4f2e;}
+[data-theme="dark"] .kpi-quad-ff{background:#3a1f1f;border-color:#6e3838;}
+.kpi-quad-hdr{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text);}
+.kpi-quad-count{font-size:26px;font-weight:700;margin:6px 0;color:var(--text);}
+.kpi-quad-desc{font-size:11px;color:var(--muted);line-height:1.4;}
+@media(max-width:700px){.insights{grid-template-columns:1fr;}.metrics{grid-template-columns:1fr 1fr;}.two-col{grid-template-columns:1fr;}.kpi-matrix{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -6514,6 +6528,134 @@ function renderSale(){
   }
   const saleSegBtn=(mode,label,emoji)=>`<button onclick="setSaleMonth('${mode}')" style="border:0;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;background:${_saleMonth===mode?'var(--green)':'var(--surface)'};color:${_saleMonth===mode?'#fff':'var(--muted)'};border-radius:0;">${emoji} ${label}</button>`;
 
+  // ═══════════════════════════════════════════════════════════
+  // 🔬 KPI COMBINATION DIAGNOSTICS — 2×2 matrices + per-store
+  // diagnosis bucket. Click any quadrant for the matching store list.
+  // ═══════════════════════════════════════════════════════════
+  const _isAch=v=>v!=null&&v>=100;
+  const _isNot=v=>v!=null&&v<100;
+  function _buildMatrix(items,keyA,keyB){
+    const q={tt:[],tf:[],ft:[],ff:[]};
+    items.forEach(j=>{
+      const a=j.kpi[keyA].cumAch,b=j.kpi[keyB].cumAch;
+      if(a==null||b==null)return;
+      if(_isAch(a)&&_isAch(b))q.tt.push(j);
+      else if(_isAch(a)&&_isNot(b))q.tf.push(j);
+      else if(_isNot(a)&&_isAch(b))q.ft.push(j);
+      else q.ff.push(j);
+    });
+    return q;
+  }
+  function _quadStats(arr){
+    const loss=arr.reduce((s,j)=>s+j.lossCount,0);
+    const nb=arr.reduce((s,j)=>s+j.nb,0);
+    const cov=nb>0?Math.round(loss/nb*100):0;
+    return{loss,nb,cov};
+  }
+  const matrices={
+    wkConv:{a:'walkins',b:'conversion',labelA:'Walk-ins',labelB:'Conversion',
+      q:_buildMatrix(joined,'walkins','conversion'),
+      legends:{
+        tt:'Healthy funnel — footfall AND closing both on target.',
+        tf:'Walk-ins ✓ · Conversion ✗ — traffic comes but doesn\'t close. Biggest loss-recovery target (training / engagement / product availability).',
+        ft:'Walk-ins ✗ · Conversion ✓ — when customers come they buy, but too few come. Marketing / visibility problem.',
+        ff:'Both failing — structural issue. Needs market-level intervention.'
+      }
+    },
+    convSale:{a:'conversion',b:'sale',labelA:'Conversion',labelB:'Sale',
+      q:_buildMatrix(joined,'conversion','sale'),
+      legends:{
+        tt:'Conversion ✓ AND Sale ✓ — clean execution.',
+        tf:'Conversion ✓ · Sale ✗ — closing well but small tickets. ABV / cross-sell gap; check inventory mix and upsell prompts.',
+        ft:'Conversion ✗ · Sale ✓ — fewer closes but big tickets carrying the store. Risk: depends on a few premium customers.',
+        ff:'Both ✗ — sale miss with weak conversion. Highest-priority remediation.'
+      }
+    },
+    billsAbv:{a:'bills',b:'abv',labelA:'Bills',labelB:'ABV',
+      q:_buildMatrix(joined,'bills','abv'),
+      legends:{
+        tt:'Bills ✓ AND ABV ✓ — volume and value both healthy.',
+        tf:'Bills ✓ · ABV ✗ — closing volume but small ticket sizes. Upsell training opportunity.',
+        ft:'Bills ✗ · ABV ✓ — each bill is rich but too few of them. Conversion drag — see Conv × Sale matrix.',
+        ff:'Bills ✗ AND ABV ✗ — both quantity and value below target. Critical revenue gap.'
+      }
+    }
+  };
+  // Persist for modal access
+  window._saleMatrices=matrices;
+
+  function _renderMatrix(key,m){
+    const tone=v=>v.length>0?v.length:0;
+    const cellHtml=(qk,clsLbl,hint)=>{
+      const arr=m.q[qk];
+      const st=_quadStats(arr);
+      return `<div class="kpi-quad kpi-quad-${qk}" onclick="showKpiCombo('${key}','${qk}')">
+        <div class="kpi-quad-hdr">${clsLbl}</div>
+        <div class="kpi-quad-count">${tone(arr)} <span style="font-size:12px;font-weight:500;color:var(--muted)">store${arr.length===1?'':'s'}</span></div>
+        <div class="kpi-quad-desc">${hint}<br><span style="color:var(--text);font-weight:600;">${fi(st.loss)}</span> loss entries · cov ${st.cov}%</div>
+      </div>`;
+    };
+    return `<div class="kpi-matrix">
+      ${cellHtml('tt',`${m.labelA} ✓ · ${m.labelB} ✓`,m.legends.tt)}
+      ${cellHtml('tf',`${m.labelA} ✓ · ${m.labelB} ✗`,m.legends.tf)}
+      ${cellHtml('ft',`${m.labelA} ✗ · ${m.labelB} ✓`,m.legends.ft)}
+      ${cellHtml('ff',`${m.labelA} ✗ · ${m.labelB} ✗`,m.legends.ff)}
+    </div>`;
+  }
+  const combosHtml=`
+    <div class="card">
+      <div class="card-title">🔬 KPI combination diagnostics — click any quadrant for the store list</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 4px 0;">Each matrix splits stores by whether two cumulative ach% KPIs hit ≥100%. Loss entries within each quadrant are summed from the current global filter — so you can spot which combination is driving the most leakage.</p>
+      <div class="section-lbl" style="margin-top:12px;">Walk-ins × Conversion — funnel entry vs closing</div>
+      ${_renderMatrix('wkConv',matrices.wkConv)}
+      <div class="section-lbl" style="margin-top:14px;">Conversion × Sale — closing rate vs revenue target</div>
+      ${_renderMatrix('convSale',matrices.convSale)}
+      <div class="section-lbl" style="margin-top:14px;">Bills × ABV — volume vs ticket value</div>
+      ${_renderMatrix('billsAbv',matrices.billsAbv)}
+    </div>`;
+
+  // Per-store diagnosis bucket (one bucket per store, precedence-based)
+  function _diagnose(j){
+    const w=j.kpi.walkins.cumAch,c=j.kpi.conversion.cumAch,b=j.kpi.bills.cumAch,a=j.kpi.abv.cumAch,s=j.kpi.sale.cumAch;
+    if([w,c,b,a,s].every(v=>v==null))return{code:'unknown',label:'⚪ No clear numbers',color:'var(--muted)'};
+    if(_isAch(w)&&_isAch(c)&&_isAch(b)&&_isAch(a)&&_isAch(s))return{code:'healthy',label:'✅ All KPIs on track',color:'var(--green)'};
+    if(_isAch(s)&&_isNot(c))return{code:'cushioned',label:'💎 Sale ✓ · Conv ✗ — premium tickets cushioning weak close',color:'#7e6cb4'};
+    if(_isAch(c)&&_isNot(s))return{code:'value-gap',label:'💸 Conv ✓ · Sale ✗ — closing fine, ticket-size shortfall',color:'#d4831a'};
+    if(_isNot(w)&&_isNot(c))return{code:'critical',label:'🔴 Walk-ins ✗ + Conv ✗ — structural problem',color:'var(--red)'};
+    if(_isNot(w)&&_isNot(s))return{code:'traffic',label:'👣 Walk-ins driving sale miss',color:'var(--amber)'};
+    if(_isNot(b)&&_isAch(a))return{code:'upsell-ok',label:'🟡 ABV ✓ · Bills ✗ — too few closes, each bill rich',color:'var(--amber)'};
+    if(_isAch(b)&&_isNot(a))return{code:'volume-ok',label:'🟠 Bills ✓ · ABV ✗ — many bills, small tickets',color:'#d4831a'};
+    if(_isNot(s))return{code:'mixed-fail',label:'🔴 Sale ✗ — mixed funnel drivers',color:'var(--red)'};
+    return{code:'other',label:'⚪ Mixed / other',color:'var(--muted)'};
+  }
+  const diagMap={};
+  joined.forEach(j=>{
+    const d=_diagnose(j);
+    if(!diagMap[d.code])diagMap[d.code]={label:d.label,color:d.color,stores:[],loss:0,nb:0};
+    diagMap[d.code].stores.push(j);
+    diagMap[d.code].loss+=j.lossCount;
+    diagMap[d.code].nb+=j.nb;
+  });
+  window._saleDiagnoses=diagMap;
+  const diagOrder=['healthy','value-gap','cushioned','upsell-ok','volume-ok','traffic','critical','mixed-fail','unknown','other'];
+  const diagRows=diagOrder.filter(k=>diagMap[k]).map(k=>{
+    const v=diagMap[k];
+    const cov=v.nb>0?Math.round(v.loss/v.nb*100):0;
+    return{cells:[
+      `<span class="clickable" onclick="showKpiCombo('diag','${k}')" style="color:${v.color};font-weight:600;">${v.label}</span>`,
+      fi(v.stores.length),
+      fi(v.loss),
+      fi(v.nb),
+      `<span class="badge ${bc(cov)}">${cov}%</span>`
+    ]};
+  });
+  const diagnosisHtml=`
+    <div class="card">
+      <div class="card-title">🧭 Funnel diagnosis bucket — one label per store</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">Every store assigned to a single primary diagnosis (precedence-based: healthy → sale-vs-conv combo → walkins/conv structural → upsell/volume mismatch → other). Click a row to see the stores in that bucket with full KPI funnel + loss columns.</p>
+      ${sortableTbl(['Diagnosis','Stores','Loss entries','Non-buyers','Loss-cov%'],diagRows,null)}
+    </div>`;
+
   target.innerHTML=`
     <div style="background:linear-gradient(135deg,#e8f9ec 0%,#fff 100%);border:1px solid #b8e3c1;border-left:4px solid var(--green);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
       <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">💰 Sale (KPI Funnel)</div>
@@ -6541,6 +6683,9 @@ function renderSale(){
       <p style="font-size:11px;color:var(--muted);margin:0 0 10px 0;">Each remark from the KPI sheet rolled up with total loss entries and avg loss-cov% across the matching stores. <em>Conversion Affected</em> / <em>Walk-in Affected</em> segments are usually where loss-of-sale data adds the most colour.</p>
       ${remarkTbl}
     </div>
+
+    ${combosHtml}
+    ${diagnosisHtml}
 
     ${insightCard('🔴 Low conversion ach% + high loss entries','Stores where cumulative conversion ach% is under 90% AND ≥5 loss entries recorded. Strong signal that loss-of-sale is a real driver — not just demand softness.',lowConvHighLoss,'var(--red)')}
     ${insightCard('🟡 Low walk-ins ach% + high loss entries','Stores under-achieving walk-ins targets but still logging loss. Footfall problem + lost demand → priority for marketing + assortment review.',lowWalkinsHighLoss,'var(--amber)')}
@@ -6629,6 +6774,56 @@ window.showSaleScopeModal=function(scope,value){
     null
   );
   openModal(`💰 ${value} — Store-wise KPI + Loss`,`${scope.toUpperCase()} · ${joined.length} stores · ${monthLabel}`,summary+tbl);
+};
+
+// Drill-down: show the store list for a 2×2 quadrant or a diagnosis bucket
+window.showKpiCombo=function(matrixKey,quadKey){
+  let stores=[],title='',sub='';
+  if(matrixKey==='diag'){
+    const d=window._saleDiagnoses&&window._saleDiagnoses[quadKey];
+    if(!d){openModal('💰 Diagnosis','No data','<p class="muted-note">No stores in this bucket.</p>');return;}
+    stores=d.stores;
+    title=`🧭 ${d.label}`;
+    sub=`${stores.length} stores · ${fi(d.loss)} loss entries · cov ${d.nb>0?Math.round(d.loss/d.nb*100):0}%`;
+  }else{
+    const m=window._saleMatrices&&window._saleMatrices[matrixKey];
+    if(!m){openModal('💰 KPI combination','No data','<p class="muted-note">Matrix not available.</p>');return;}
+    stores=m.q[quadKey]||[];
+    const qLabel={tt:`${m.labelA} ✓ · ${m.labelB} ✓`,tf:`${m.labelA} ✓ · ${m.labelB} ✗`,ft:`${m.labelA} ✗ · ${m.labelB} ✓`,ff:`${m.labelA} ✗ · ${m.labelB} ✗`}[quadKey]||'';
+    title=`🔬 ${qLabel}`;
+    sub=`${stores.length} stores · ${m.legends[quadKey]||''}`;
+  }
+  if(!stores.length){openModal(title,sub,'<p class="muted-note">No stores in this combination.</p>');return;}
+  const totalLoss=stores.reduce((s,j)=>s+j.lossCount,0);
+  const totalNB=stores.reduce((s,j)=>s+j.nb,0);
+  const cov=totalNB>0?Math.round(totalLoss/totalNB*100):0;
+  const summary=`
+    <div class="metrics" style="margin-bottom:1rem;">
+      <div class="metric"><div class="lbl">Stores</div><div class="val">${stores.length}</div></div>
+      <div class="metric red"><div class="lbl">Loss entries</div><div class="val">${fi(totalLoss)}</div><div class="sub">${fi(totalNB)} non-buyers</div></div>
+      <div class="metric ${cov>=40?'red':cov>=25?'amber':'green'}"><div class="lbl">Loss-cov%</div><div class="val">${cov}%</div></div>
+    </div>`;
+  const tbl=sortableTbl(
+    ['Store','Market','RM','Type','Cum Walk-in%','Cum Conv%','Cum Bills%','Cum ABV%','Cum Sale%','Loss entries','Loss-cov%','Top reason'],
+    stores.slice().sort((a,b)=>b.lossCount-a.lossCount).map(j=>({cells:[
+      j.matched
+        ? `<span class="clickable" onclick="showStoreModal('${_kpiLookupOutlet(j).replace(/'/g,"\\'")}')">${j.kpi.store}</span>`
+        : `<span style="color:var(--muted)">${j.kpi.store}</span>`,
+      `<span style="font-size:11px;color:var(--muted)">${j.kpi.market}</span>`,
+      `<span style="font-size:11px;color:var(--muted)">${j.kpi.rm}</span>`,
+      `<span style="font-size:11px;color:var(--muted)">${j.kpi.type||'—'}</span>`,
+      _kpiAchDisp(j.kpi.walkins.cumAch),
+      _kpiAchDisp(j.kpi.conversion.cumAch),
+      _kpiAchDisp(j.kpi.bills.cumAch),
+      _kpiAchDisp(j.kpi.abv.cumAch),
+      _kpiAchDisp(j.kpi.sale.cumAch),
+      fi(j.lossCount),
+      `<span class="badge ${bc(j.lossCov)}">${j.lossCov}%</span>`,
+      j.topReason?`<span style="font-size:11px;color:var(--muted)">${j.topReason} (${j.topReasonCount})</span>`:'<span style="color:var(--muted)">—</span>'
+    ]})),
+    null
+  );
+  openModal(title,sub,summary+tbl);
 };
 
 </script>
