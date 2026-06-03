@@ -6602,6 +6602,36 @@ function renderSale(){
       ${cellHtml('ff',`${m.labelA} ✗ · ${m.labelB} ✗`,m.legends.ff)}
     </div>`;
   }
+  // Single-KPI miss buckets — every store where cum ach% < 100% for that KPI alone
+  const singleMiss={
+    walkins:joined.filter(j=>_isNot(j.kpi.walkins.cumAch)).sort((a,b)=>(a.kpi.walkins.cumAch||0)-(b.kpi.walkins.cumAch||0)),
+    conversion:joined.filter(j=>_isNot(j.kpi.conversion.cumAch)).sort((a,b)=>(a.kpi.conversion.cumAch||0)-(b.kpi.conversion.cumAch||0)),
+    bills:joined.filter(j=>_isNot(j.kpi.bills.cumAch)).sort((a,b)=>(a.kpi.bills.cumAch||0)-(b.kpi.bills.cumAch||0)),
+    abv:joined.filter(j=>_isNot(j.kpi.abv.cumAch)).sort((a,b)=>(a.kpi.abv.cumAch||0)-(b.kpi.abv.cumAch||0)),
+    sale:joined.filter(j=>_isNot(j.kpi.sale.cumAch)).sort((a,b)=>(a.kpi.sale.cumAch||0)-(b.kpi.sale.cumAch||0)),
+  };
+  window._saleSingleMiss=singleMiss;
+  const singleChips=[
+    ['walkins','👣 Walk-ins ✗','#3066be'],
+    ['conversion','🤝 Conversion ✗','#d4831a'],
+    ['bills','🧾 Bills ✗','#7e6cb4'],
+    ['abv','💎 ABV ✗','#5a8a3a'],
+    ['sale','💰 Sale ✗','#b94545'],
+  ].map(([k,lbl,color])=>{
+    const arr=singleMiss[k];
+    const loss=arr.reduce((s,j)=>s+j.lossCount,0);
+    return `<button onclick="showKpiCombo('single','${k}')" style="background:${color};color:#fff;border:0;border-radius:10px;padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:flex-start;line-height:1.35;text-align:left;min-width:140px;">
+      <span style="font-size:13px;">${lbl}</span>
+      <span style="font-size:11px;opacity:0.9;font-weight:500;">${arr.length} stores · ${fi(loss)} loss</span>
+    </button>`;
+  }).join('');
+  const singleMissHtml=`
+    <div class="card">
+      <div class="card-title">🎯 KPI not achieved — single-metric store lists (one-click)</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 10px 0;">Each chip = the stores where that KPI's cumulative ach% is below 100%. Click any chip to see the full list (sorted by loss volume), with full funnel + loss columns. Use this when you only care about one metric — e.g. just "show me stores where conversion isn't hit".</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">${singleChips}</div>
+    </div>`;
+
   const combosHtml=`
     <div class="card">
       <div class="card-title">🔬 KPI combination diagnostics — click any quadrant for the store list</div>
@@ -6684,6 +6714,7 @@ function renderSale(){
       ${remarkTbl}
     </div>
 
+    ${singleMissHtml}
     ${combosHtml}
     ${diagnosisHtml}
 
@@ -6785,6 +6816,11 @@ window.showKpiCombo=function(matrixKey,quadKey){
     stores=d.stores;
     title=`🧭 ${d.label}`;
     sub=`${stores.length} stores · ${fi(d.loss)} loss entries · cov ${d.nb>0?Math.round(d.loss/d.nb*100):0}%`;
+  }else if(matrixKey==='single'){
+    stores=(window._saleSingleMiss&&window._saleSingleMiss[quadKey])||[];
+    const lbl={walkins:'Walk-ins',conversion:'Conversion',bills:'Bills',abv:'ABV',sale:'Sale'}[quadKey]||quadKey;
+    title=`🎯 ${lbl} not achieved`;
+    sub=`${stores.length} stores · cumulative ach% below 100%`;
   }else{
     const m=window._saleMatrices&&window._saleMatrices[matrixKey];
     if(!m){openModal('💰 KPI combination','No data','<p class="muted-note">Matrix not available.</p>');return;}
