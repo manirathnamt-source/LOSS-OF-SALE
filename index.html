@@ -24,6 +24,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .filter-bar label{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap;flex-shrink:0;}
 .filter-bar select{font-size:11px;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;min-width:100px;max-width:140px;flex-shrink:1;}
 .filter-bar select:focus{outline:none;border-color:var(--blue);}
+.ms-wrap{position:relative;display:inline-block;flex-shrink:0;}
+.ms-btn{font-size:11px;padding:4px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:4px;min-height:24px;}
+.ms-btn:hover{border-color:var(--blue);}
+.ms-btn.ms-active{border-color:var(--blue);background:#eaf1fc;color:#1a3fa0;font-weight:600;}
+[data-theme="dark"] .ms-btn.ms-active{background:#1c2a3a;color:#a0bfe8;}
+.ms-btn-arrow{font-size:9px;opacity:.7;}
+.ms-panel{position:absolute;top:100%;left:0;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;z-index:300;min-width:220px;max-width:340px;max-height:320px;overflow-y:auto;box-shadow:0 6px 18px rgba(0,0,0,0.15);}
+.ms-panel-hdr{display:flex;gap:6px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+.ms-panel-hdr input{flex:1;font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);outline:none;}
+.ms-panel-hdr input:focus{border-color:var(--blue);}
+.ms-panel-btn{font-size:10px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--muted);cursor:pointer;}
+.ms-panel-btn:hover{background:var(--border);}
+.ms-row{display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 6px;cursor:pointer;color:var(--text);border-radius:4px;}
+.ms-row:hover{background:var(--bg);}
+.ms-row input{cursor:pointer;flex-shrink:0;}
 .filter-btn{font-size:11px;padding:4px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;font-weight:500;white-space:nowrap;flex-shrink:0;}
 .filter-btn:hover{background:var(--blue);color:#fff;border-color:var(--blue);}
 /* TOGGLE */
@@ -532,23 +547,114 @@ let _WK=null,_LS_ROWS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={},_WK_STORE_BY_KEY
 let _lsSyncOn=false; // toggle: false = Loss tab shows ALL data
 
 // ── FILTER STATE — stored in object, not just DOM ─────────
-let _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:'',custType:'',purpose:'',month:'all'};
+// Multi-select filters use arrays; empty array = "all" (no filter applied).
+// dateFrom / dateTo stay as strings (single-value pickers).
+let _F={dateFrom:'',dateTo:'',cluster:[],rm:[],market:[],store:[],reason:[],custType:[],purpose:[],month:[]};
 
 function getFilters(){return{..._F};}
+
+// Polymorphic match helper — works whether `sel` is the array stored in _F
+// or a single string passed by drill-down code that does `{...f, market: 'Bangalore'}`.
+// Returns true when the filter is empty / unset (match-everything) or contains the value.
+function _has(sel,val){
+  if(sel==null||sel==='')return true;
+  if(Array.isArray(sel)){return!sel.length||sel.includes(val);}
+  return sel===val;
+}
+// Pretty label for a multi-select filter (e.g. "Market: Bangalore, Chennai" / "Market: 3 selected" / "").
+function _fLabel(sel,name){
+  if(!sel)return'';
+  if(Array.isArray(sel)){
+    if(!sel.length)return'';
+    if(sel.length<=2)return`${name}: ${sel.join(', ')}`;
+    return`${name}: ${sel.length} selected`;
+  }
+  return sel?`${name}: ${sel}`:'';
+}
 
 function setFilter(key,val){
   _F[key]=val;
   renderAll();
 }
 function resetFilters(){
-  _F={dateFrom:'',dateTo:'',cluster:'',rm:'',market:'',store:'',reason:'',custType:'',purpose:'',month:'all'};
-  ['f-month','f-date-from','f-date-to','f-cluster','f-rm','f-market','f-store','f-reason','f-cust-type','f-purpose'].forEach(id=>{
-    const el=document.getElementById(id);if(el)el.value=id==='f-month'?'all':'';
-  });
+  _F={dateFrom:'',dateTo:'',cluster:[],rm:[],market:[],store:[],reason:[],custType:[],purpose:[],month:[]};
+  document.querySelectorAll('.ms-panel').forEach(p=>p.style.display='none');
   applyMonthFilter();
   buildFilterBar();
   renderAll();
 }
+
+// ── MULTI-SELECT WIDGET ──────────────────────────────────
+// Renders a button + dropdown checkbox panel for a multi-select filter.
+function _msHtml(key,labelText,options,opts){
+  opts=opts||{};
+  const sel=_F[key]||[];
+  const isActive=sel.length>0;
+  let summary;
+  if(!sel.length)summary=`All ${labelText.toLowerCase()}s`;
+  else if(sel.length===1)summary=sel[0];
+  else if(sel.length===2)summary=sel.join(', ');
+  else summary=`${sel.length} selected`;
+  const panelId=`ms-${key}-panel`;
+  const rows=options.map(o=>{
+    const lbl=opts.labelFn?opts.labelFn(o):o;
+    const checked=sel.includes(o)?'checked':'';
+    const safeVal=String(o).replace(/'/g,"\\'");
+    return`<label class="ms-row" data-label="${String(lbl).toLowerCase().replace(/"/g,'&quot;')}"><input type="checkbox" ${checked} onchange="_msToggle('${key}','${safeVal}')"/><span>${lbl}</span></label>`;
+  }).join('');
+  return`<div class="ms-wrap">
+    <button type="button" class="ms-btn${isActive?' ms-active':''}" onclick="_msTogglePanel('${panelId}',event)">
+      <span style="color:var(--muted);">${labelText}:</span>
+      <span>${summary}</span>
+      <span class="ms-btn-arrow">▾</span>
+    </button>
+    <div class="ms-panel" id="${panelId}" style="display:none;">
+      <div class="ms-panel-hdr">
+        <input type="text" placeholder="Search ${labelText.toLowerCase()}..." oninput="_msFilter('${panelId}',this.value)" onclick="event.stopPropagation();"/>
+        <button class="ms-panel-btn" onclick="_msClear('${key}')">Clear</button>
+      </div>
+      <div>${rows||`<div style="font-size:11px;color:var(--muted);padding:6px;">No options</div>`}</div>
+    </div>
+  </div>`;
+}
+function _msTogglePanel(panelId,e){
+  if(e)e.stopPropagation();
+  document.querySelectorAll('.ms-panel').forEach(p=>{if(p.id!==panelId)p.style.display='none';});
+  const p=document.getElementById(panelId);
+  if(p)p.style.display=p.style.display==='none'?'block':'none';
+}
+function _msToggle(key,val){
+  if(!Array.isArray(_F[key]))_F[key]=[];
+  const i=_F[key].indexOf(val);
+  if(i>=0)_F[key].splice(i,1);else _F[key].push(val);
+  if(key==='month'){applyMonthFilter();}
+  // Refresh the chip summary on this button without closing the panel
+  buildFilterBar();
+  // Re-open the panel that was just edited
+  const p=document.getElementById(`ms-${key}-panel`);if(p)p.style.display='block';
+  renderAll();
+}
+function _msClear(key){
+  _F[key]=[];
+  if(key==='month')applyMonthFilter();
+  buildFilterBar();
+  const p=document.getElementById(`ms-${key}-panel`);if(p)p.style.display='block';
+  renderAll();
+}
+function _msFilter(panelId,q){
+  const ql=String(q||'').toLowerCase().trim();
+  const p=document.getElementById(panelId);
+  if(!p)return;
+  p.querySelectorAll('.ms-row').forEach(r=>{
+    const lbl=r.getAttribute('data-label')||'';
+    r.style.display=!ql||lbl.includes(ql)?'flex':'none';
+  });
+}
+document.addEventListener('click',function(e){
+  if(!e.target.closest('.ms-wrap')){
+    document.querySelectorAll('.ms-panel').forEach(p=>p.style.display='none');
+  }
+});
 
 // ── PARSE WALKINS ─────────────────────────────────────────
 function parseWalkins(headers,rows){
@@ -761,8 +867,8 @@ function daysInRange(days,f){
 function filterStores(stores,f){
   return stores.filter(s=>
     ((!f.dateFrom&&!f.dateTo)||s.days.some(d=>dateInRange(d.dk,f)))&&
-    (!f.rm||s.rm===f.rm)&&(!f.cluster||s.cluster===f.cluster)&&
-    (!f.market||s.market===f.market)&&(!f.store||s.outlet===f.store)
+    _has(f.rm,s.rm)&&_has(f.cluster,s.cluster)&&
+    _has(f.market,s.market)&&_has(f.store,s.outlet)
   );
 }
 
@@ -778,15 +884,17 @@ function filterLS(f){
     if(!dateInRange(r._dk,f))return false;
     const wkStore=r._wkStore;
     const storeRM=wkStore?wkStore.rm:r._rm;
-    if(f.rm&&storeRM!==f.rm)return false;
+    if(!_has(f.rm,storeRM))return false;
     // For cluster/market filters: if store exists in walkins, use that mapping;
-    // if not (walkins for that store haven't been entered yet), accept the row when no filter applied.
-    if(f.cluster&&(!wkStore||wkStore.cluster!==f.cluster))return false;
-    if(f.market&&(!wkStore||wkStore.market!==f.market))return false;
-    if(f.store&&storeIdx>=0&&String(r[storeIdx]||'')!==f.store)return false;
-    if(f.reason&&reasonIdx>=0&&String(r[reasonIdx]||'')!==f.reason)return false;
-    if(f.custType&&custIdx>=0&&String(r[custIdx]||'')!==f.custType)return false;
-    if(f.purpose&&purposeIdx>=0&&String(r[purposeIdx]||'')!==f.purpose)return false;
+    // if not (walkins for that store haven't been entered yet), only enforce when filter is set.
+    const fClusterActive=Array.isArray(f.cluster)?f.cluster.length>0:!!f.cluster;
+    const fMarketActive=Array.isArray(f.market)?f.market.length>0:!!f.market;
+    if(fClusterActive&&(!wkStore||!_has(f.cluster,wkStore.cluster)))return false;
+    if(fMarketActive&&(!wkStore||!_has(f.market,wkStore.market)))return false;
+    if(storeIdx>=0&&!_has(f.store,String(r[storeIdx]||'')))return false;
+    if(reasonIdx>=0&&!_has(f.reason,String(r[reasonIdx]||'')))return false;
+    if(custIdx>=0&&!_has(f.custType,String(r[custIdx]||'')))return false;
+    if(purposeIdx>=0&&!_has(f.purpose,String(r[purposeIdx]||'')))return false;
     return true;
   });
 }
@@ -800,13 +908,15 @@ function filterLSTab(f){
     if(!dateInRange(dk,f))return false;
     const wkStore=r._wkStore;
     const storeRM=wkStore?wkStore.rm:r._rm;
-    if(f.rm&&storeRM!==f.rm)return false;
-    if(f.cluster&&(!wkStore||wkStore.cluster!==f.cluster))return false;
-    if(f.market&&(!wkStore||wkStore.market!==f.market))return false;
-    if(f.store&&storeIdx>=0&&String(r[storeIdx]||'')!==f.store)return false;
-    if(f.reason&&reasonIdx>=0&&String(r[reasonIdx]||'')!==f.reason)return false;
-    if(f.custType&&custIdx>=0&&String(r[custIdx]||'')!==f.custType)return false;
-    if(f.purpose&&purposeIdx>=0&&String(r[purposeIdx]||'')!==f.purpose)return false;
+    if(!_has(f.rm,storeRM))return false;
+    const fClusterActive=Array.isArray(f.cluster)?f.cluster.length>0:!!f.cluster;
+    const fMarketActive=Array.isArray(f.market)?f.market.length>0:!!f.market;
+    if(fClusterActive&&(!wkStore||!_has(f.cluster,wkStore.cluster)))return false;
+    if(fMarketActive&&(!wkStore||!_has(f.market,wkStore.market)))return false;
+    if(storeIdx>=0&&!_has(f.store,String(r[storeIdx]||'')))return false;
+    if(reasonIdx>=0&&!_has(f.reason,String(r[reasonIdx]||'')))return false;
+    if(custIdx>=0&&!_has(f.custType,String(r[custIdx]||'')))return false;
+    if(purposeIdx>=0&&!_has(f.purpose,String(r[purposeIdx]||'')))return false;
     return true;
   });
 }
@@ -922,11 +1032,7 @@ function buildFilterBar(){
 
   document.getElementById('global-filter-bar').innerHTML=`
     <div class="filter-bar">
-      <label>Month:</label>
-      <select id="f-month" onchange="_F.month=this.value;applyMonthFilter();buildFilterBar();renderAll()">
-        ${_activeMonths.length>1?`<option value="all"${_F.month==='all'?' selected':''}>All months (${_activeMonths.length})</option>`:''}
-        ${_activeMonths.map(k=>`<option value="${k}"${_F.month===k?' selected':''}>${MONTHS[k].label}</option>`).join('')}
-      </select>
+      ${_msHtml('month','Month',_activeMonths,{labelFn:k=>MONTHS[k]?MONTHS[k].label:k})}
       <div style="width:1px;height:20px;background:var(--border);flex-shrink:0;"></div>
       <label>From:</label>
       <select id="f-date-from" onchange="_F.dateFrom=this.value;if(_F.dateTo&&_F.dateTo<_F.dateFrom)_F.dateTo='';buildFilterBar();renderAll()">
@@ -938,41 +1044,13 @@ function buildFilterBar(){
         <option value="">End</option>
         ${dks.filter(dk=>!_F.dateFrom||dk>=_F.dateFrom).map(dk=>`<option value="${dk}"${_F.dateTo===dk?' selected':''}>${fmtDK(dk)}</option>`).join('')}
       </select>
-      <label>Cluster:</label>
-      <select id="f-cluster" onchange="_F.cluster=this.value;renderAll()">
-        <option value="">All clusters</option>
-        ${clusters.map(c=>`<option${_F.cluster===c?' selected':''}>${c}</option>`).join('')}
-      </select>
-      <label>RM:</label>
-      <select id="f-rm" onchange="_F.rm=this.value;renderAll()">
-        <option value="">All RMs</option>
-        ${rms.map(r=>`<option${_F.rm===r?' selected':''}>${r}</option>`).join('')}
-      </select>
-      <label>Market:</label>
-      <select id="f-market" onchange="_F.market=this.value;renderAll()">
-        <option value="">All markets</option>
-        ${markets.map(m=>`<option${_F.market===m?' selected':''}>${m}</option>`).join('')}
-      </select>
-      <label>Store:</label>
-      <select id="f-store" onchange="_F.store=this.value;renderAll()">
-        <option value="">All stores</option>
-        ${storeNames.map(s=>`<option${_F.store===s?' selected':''}>${s}</option>`).join('')}
-      </select>
-      <label>Reason:</label>
-      <select id="f-reason" onchange="_F.reason=this.value;renderAll()">
-        <option value="">All reasons</option>
-        ${reasons.map(r=>`<option${_F.reason===r?' selected':''}>${r}</option>`).join('')}
-      </select>
-      ${custTypes.length?`<label>Customer:</label>
-      <select id="f-cust-type" onchange="_F.custType=this.value;renderAll()">
-        <option value="">All types</option>
-        ${custTypes.map(c=>`<option${_F.custType===c?' selected':''}>${c}</option>`).join('')}
-      </select>`:''}
-      ${purposes.length?`<label>Purpose:</label>
-      <select id="f-purpose" onchange="_F.purpose=this.value;renderAll()">
-        <option value="">All purposes</option>
-        ${purposes.map(p=>`<option${_F.purpose===p?' selected':''}>${p}</option>`).join('')}
-      </select>`:''}
+      ${_msHtml('cluster','Cluster',clusters)}
+      ${_msHtml('rm','RM',rms)}
+      ${_msHtml('market','Market',markets)}
+      ${_msHtml('store','Store',storeNames)}
+      ${_msHtml('reason','Reason',reasons)}
+      ${custTypes.length?_msHtml('custType','Customer',custTypes):''}
+      ${purposes.length?_msHtml('purpose','Purpose',purposes):''}
       <div style="width:1px;height:20px;background:var(--border);flex-shrink:0;"></div>
       <label style="margin-right:4px;">View:</label>
       <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0;">
@@ -1070,8 +1148,7 @@ function renderOverview(){
   const rmMap={};
   // First pass: include ALL stores under each RM (filtered by cluster/market only, not store-level)
   const rmFilt=_WK.stores.filter(s=>
-    (!f.rm||s.rm===f.rm)&&(!f.cluster||s.cluster===f.cluster)&&
-    (!f.market||s.market===f.market)
+    _has(f.rm,s.rm)&&_has(f.cluster,s.cluster)&&_has(f.market,s.market)
   );
   rmFilt.forEach(s=>{
     if(!rmMap[s.rm])rmMap[s.rm]={stores:[],totalW:0,totalB:0,zeroStores:0,daysActive:0,ls:0};
@@ -5854,9 +5931,7 @@ window.showRMModal=function(rm){
   const f=getFilters();
   // ALL stores under this RM filtered by current cluster/market filters (NOT date — we want to see zero-day stores too)
   const allRMStores=_WK.stores.filter(s=>
-    s.rm===rm&&
-    (!f.cluster||s.cluster===f.cluster)&&
-    (!f.market||s.market===f.market)
+    s.rm===rm&&_has(f.cluster,s.cluster)&&_has(f.market,s.market)
   );
   const filtLS=filterLS({...f,rm});
   const{storeIdx}=_LS_IDX;
@@ -5882,7 +5957,7 @@ window.showRMModal=function(rm){
   const zeroCount=storeRows.filter(s=>s.zeroFlag).length;
   const activeCount=storeRows.length-zeroCount;
   const dateLabel=_F.dateFrom||_F.dateTo?`${_F.dateFrom?fmtDK(_F.dateFrom):'Start'} → ${_F.dateTo?fmtDK(_F.dateTo):'End'}`:'';
-  const af=[f.cluster?`Cluster: ${f.cluster}`:'',f.market?`Market: ${f.market}`:'',dateLabel].filter(Boolean).join(' · ');
+  const af=[_fLabel(f.cluster,'Cluster'),_fLabel(f.market,'Market'),dateLabel].filter(Boolean).join(' · ');
 
   const tblRows=storeRows.map(s=>({
     cells:[
@@ -5935,7 +6010,7 @@ window.showMarketModal=function(market){
   }).sort((a,b)=>b.w-a.w);
   const tW=storeRows.reduce((s,r)=>s+r.w,0),tB=storeRows.reduce((s,r)=>s+r.b,0),tNB=storeRows.reduce((s,r)=>s+r.nb,0),tLS=storeRows.reduce((s,r)=>s+r.ls,0);
   const dateLabel=_F.dateFrom||_F.dateTo?`${_F.dateFrom?fmtDK(_F.dateFrom):'Start'} → ${_F.dateTo?fmtDK(_F.dateTo):'End'}`:'';
-  const af=[f.rm?`RM: ${f.rm}`:'',f.cluster?`Cluster: ${f.cluster}`:'',dateLabel].filter(Boolean).join(' · ');
+  const af=[_fLabel(f.rm,'RM'),_fLabel(f.cluster,'Cluster'),dateLabel].filter(Boolean).join(' · ');
   const wkDayMap=buildWkDayMap(filtStores,f);
   openModal(`${market} — stores`,af,`
     <div class="metrics" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:1.25rem;">
@@ -6179,8 +6254,12 @@ function mergeMonths(keys){
 }
 
 function applyMonthFilter(){
-  const sel=_F.month||'all';
-  const keys=sel==='all'?_activeMonths:[sel];
+  // _F.month is an array; empty = "all months"; legacy 'all' string also tolerated.
+  const sel=_F.month;
+  let keys;
+  if(Array.isArray(sel)){keys=sel.length?sel:_activeMonths;}
+  else if(!sel||sel==='all'){keys=_activeMonths;}
+  else{keys=[sel];}
   const available=keys.filter(k=>_MONTH_DATA[k]);
   if(!available.length){console.warn('[applyMonthFilter] no months available for selection:',sel);return false;}
   try{
@@ -6230,7 +6309,7 @@ async function init(){
   console.log('[init] all months loaded:',_activeMonths.map(k=>`${k}=${_MONTH_DATA[k]?'OK':'FAILED'}`));
 
   // ── STEP 3: APPLY FILTER + RENDER ─────────────────────
-  _F.month='all';
+  _F.month=[];  // empty array = all months
   const available=_activeMonths.filter(k=>_MONTH_DATA[k]);
   if(available.length===0){
     document.getElementById('ov').innerHTML='<div class="err-card">❌ Could not load any month data. Check pills above for details.</div>';
@@ -6368,8 +6447,14 @@ function _kpiJoined(f){
   // Walk every KPI row, also respect filter scope (market/RM)
   const joined=[];
   _KPI_DATA.forEach(k=>{
-    if(f.rm&&_normRM(k.rm)!==_normRM(f.rm))return;
-    if(f.market&&_normMarket(k.market)!==_normMarket(f.market))return;
+    if(Array.isArray(f.rm)?f.rm.length:!!f.rm){
+      const sel=Array.isArray(f.rm)?f.rm:[f.rm];
+      if(!sel.map(_normRM).includes(_normRM(k.rm)))return;
+    }
+    if(Array.isArray(f.market)?f.market.length:!!f.market){
+      const sel=Array.isArray(f.market)?f.market:[f.market];
+      if(!sel.map(_normMarket).includes(_normMarket(k.market)))return;
+    }
     const n=normStore(k.store);
     const wk=wkByNorm[n];
     const loss=lossByStore[n];
