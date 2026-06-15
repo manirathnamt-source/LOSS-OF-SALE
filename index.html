@@ -1874,12 +1874,15 @@ function renderWeekly(){
       `}
     </div>
 
+    <div class="card" style="border-left:4px solid var(--red);">
+      <div class="card-title">📋 Loss reasons — week-by-week comparison</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">Each row = one loss reason · columns = ISO weeks (Mon–Sun) · last column = WoW Δ vs previous week. Always rendered in loss mode regardless of the toggle above (reasons only exist for loss entries). Click any reason → modal with that reason's weekly trend + store list.</p>
+      ${_weeklyBuildTable('Reason','byReason',k=>`showWeeklyReasonModal('${k.replace(/'/g,"\\\\'")}')`,{weeks,byWeekLoss,byWeekWk,byWeekPurp,metric:'loss'})}
+    </div>
     ${buildTable('Market','byMarket',k=>`showWeeklyDrill('market','${k.replace(/'/g,"\\\\'")}')`)}
     ${buildTable('Cluster','byCluster',k=>`showWeeklyDrill('cluster','${k.replace(/'/g,"\\\\'")}')`)}
     ${buildTable('RM','byRM',k=>`showWeeklyDrill('rm','${k.replace(/'/g,"\\\\'")}')`)}
-    ${buildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\\\'")}')`)}
-    <div class="section-lbl" style="margin-top:18px;">📋 Loss reasons week-over-week — always shown in loss mode (independent of the toggle above)</div>
-    ${_weeklyBuildTable('Reason','byReason',k=>`showWeeklyReasonModal('${k.replace(/'/g,"\\\\'")}')`,{weeks,byWeekLoss,byWeekWk,byWeekPurp,metric:'loss'})}`;
+    ${buildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\\\'")}')`)}`;
 }
 
 // Legacy alias kept in case anything else references it
