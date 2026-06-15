@@ -150,6 +150,7 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
     <button class="tab-btn" onclick="show('purp')">🎯 Purpose</button>
     <button class="tab-btn" onclick="show('wkly')">Weekly Comparison</button>
     <button class="tab-btn" onclick="show('sale')">💰 Sale</button>
+    <button class="tab-btn" onclick="show('raw')">📄 Raw Data</button>
     <button class="tab-btn" onclick="show('ask')">💬 Ask</button>
     <button class="tab-btn" onclick="show('ins')">💎 Insights</button>
     <button class="tab-btn" onclick="show('audit')">Audit</button>
@@ -161,6 +162,7 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
   <div id="purp" class="pane"><div class="loading">Loading...</div></div>
   <div id="wkly" class="pane"><div class="loading">Loading...</div></div>
   <div id="sale" class="pane"><div class="loading">Loading...</div></div>
+  <div id="raw" class="pane"><div class="loading">Loading...</div></div>
   <div id="ask" class="pane"><div class="loading">Loading...</div></div>
   <div id="ins" class="pane"><div class="loading">Loading...</div></div>
   <div id="audit" class="pane"><div class="loading">Loading...</div></div>
@@ -332,7 +334,7 @@ function toDayKey(raw){
 
 // ── TAB SWITCHING ─────────────────────────────────────────
 function show(id){
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','purp','wkly','sale','ask','ins','audit'][i]===id));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','purp','wkly','sale','raw','ask','ins','audit'][i]===id));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   // Clear Insights scope when navigating to any other tab so its modals aren't accidentally scoped
@@ -343,6 +345,7 @@ function show(id){
   if(id==='purp')renderPurpose();
   if(id==='wkly')renderWeekly();
   if(id==='sale')renderSale();
+  if(id==='raw')renderRawData();
   if(id==='ask')renderAsk();
   if(id==='ins')renderInsights();
 }
@@ -543,7 +546,7 @@ function getCustCounts(rows){
 }
 
 // ── GLOBAL STATE ──────────────────────────────────────────
-let _WK=null,_LS_ROWS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={},_WK_STORE_BY_KEY={};
+let _WK=null,_LS_ROWS=[],_LS_HEADERS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={},_WK_STORE_BY_KEY={};
 let _lsSyncOn=false; // toggle: false = Loss tab shows ALL data
 
 // ── FILTER STATE — stored in object, not just DOM ─────────
@@ -758,6 +761,7 @@ function parseWalkins(headers,rows){
 
 // ── PARSE LOSS OF SALE ────────────────────────────────────
 function parseLoss(headers,rows){
+  _LS_HEADERS=headers||[];
   const lh=headers.map(h=>(h||'').toLowerCase().trim());
   // Match exact headers (case-insensitive), with fallbacks for variations
   const findCol=(...alts)=>{
@@ -1074,6 +1078,8 @@ function renderAll(){
   if(document.getElementById('cat').classList.contains('active'))renderCatAnalysis();
   if(document.getElementById('purp').classList.contains('active'))renderPurpose();
   if(document.getElementById('wkly').classList.contains('active'))renderWeekly();
+  if(document.getElementById('sale').classList.contains('active'))renderSale();
+  if(document.getElementById('raw').classList.contains('active'))renderRawData();
   if(document.getElementById('ins').classList.contains('active'))renderInsights();
   if(document.getElementById('audit').classList.contains('active'))renderAudit();
 }
@@ -6479,6 +6485,148 @@ function _kpiJoined(f){
 // Loose-match helpers — KPI rm/market labels may not exactly match loss-data labels.
 function _normRM(s){return String(s||'').toLowerCase().replace(/\s+/g,'').trim();}
 function _normMarket(s){return String(s||'').toLowerCase().replace(/\s+/g,'').trim();}
+
+// ═══════════════════════════════════════════════════════════════════
+// 📄 RAW DATA TAB — every column from the loss-of-sale sheet, with the
+// global filter applied + pagination + CSV download. Useful when users
+// want to inspect or export the actual rows backing the dashboard.
+// ═══════════════════════════════════════════════════════════════════
+let _rawPage=0;
+let _rawPageSize=100;
+let _rawSearch='';
+window.setRawPage=function(p){_rawPage=Math.max(0,p);renderRawData();};
+window.setRawPageSize=function(n){_rawPageSize=parseInt(n,10)||100;_rawPage=0;renderRawData();};
+window.setRawSearch=function(v){_rawSearch=String(v||'').toLowerCase().trim();_rawPage=0;renderRawData();};
+
+function _rawTruncate(v,max){
+  const s=String(v==null?'':v);
+  if(s.length<=max)return s;
+  return s.slice(0,max)+'…';
+}
+function _rawEscapeHtml(v){
+  return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function _rawCsvEscape(v){
+  const s=String(v==null?'':v);
+  if(s.includes(',')||s.includes('"')||s.includes('\n')||s.includes('\r')){
+    return'"'+s.replace(/"/g,'""')+'"';
+  }
+  return s;
+}
+window.downloadRawCsv=function(){
+  const f=getFilters();
+  let rows=filterLS(f);
+  if(_rawSearch){
+    rows=rows.filter(r=>r.some(v=>String(v==null?'':v).toLowerCase().includes(_rawSearch)));
+  }
+  const headers=(_LS_HEADERS||[]).map((h,i)=>h&&String(h).trim()?h:`Col ${i+1}`);
+  const lines=[headers.map(_rawCsvEscape).join(',')];
+  rows.forEach(r=>lines.push(headers.map((_,i)=>_rawCsvEscape(r[i])).join(',')));
+  const csv=lines.join('\r\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.href=url;a.download=`loss-of-sale-raw-${ts}.csv`;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+function renderRawData(){
+  const target=document.getElementById('raw');
+  if(!_LS_HEADERS||!_LS_HEADERS.length){
+    target.innerHTML=`<div class="err-card">⚠️ Loss-of-sale headers not loaded yet. Wait for initial data load to complete.</div>`;
+    return;
+  }
+  const f=getFilters();
+  let rows=filterLS(f);
+  const totalFiltered=rows.length;
+  // Optional in-tab full-text search across all columns (cheap on filtered set)
+  if(_rawSearch){
+    rows=rows.filter(r=>r.some(v=>String(v==null?'':v).toLowerCase().includes(_rawSearch)));
+  }
+  const total=rows.length;
+  const pageSize=_rawPageSize;
+  const pages=Math.max(1,Math.ceil(total/pageSize));
+  if(_rawPage>=pages)_rawPage=pages-1;
+  if(_rawPage<0)_rawPage=0;
+  const start=_rawPage*pageSize;
+  const end=Math.min(total,start+pageSize);
+  const pageRows=rows.slice(start,end);
+  const headers=_LS_HEADERS.map((h,i)=>h&&String(h).trim()?String(h):`Col ${i+1}`);
+
+  // Active-filter chips for the banner
+  const fLabels=[
+    _fLabel(f.month,'Month'),
+    f.dateFrom||f.dateTo?`Date: ${f.dateFrom?fmtDK(f.dateFrom):'Start'} → ${f.dateTo?fmtDK(f.dateTo):'End'}`:'',
+    _fLabel(f.cluster,'Cluster'),_fLabel(f.rm,'RM'),_fLabel(f.market,'Market'),_fLabel(f.store,'Store'),
+    _fLabel(f.reason,'Reason'),_fLabel(f.custType,'Customer'),_fLabel(f.purpose,'Purpose')
+  ].filter(Boolean);
+  const filterChips=fLabels.length
+    ? fLabels.map(l=>`<span style="background:#eaf1fc;color:#1a3fa0;border-radius:14px;padding:3px 10px;font-size:11px;font-weight:600;">${l}</span>`).join(' ')
+    : '<span style="color:var(--muted);font-size:11px;">No filters applied — showing every loss row.</span>';
+
+  const pager=(side)=>`
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;font-size:12px;color:var(--muted);${side==='top'?'border-bottom:1px solid var(--border);margin-bottom:8px;':'border-top:1px solid var(--border);margin-top:8px;'}">
+      <span><strong style="color:var(--text);">Page ${_rawPage+1} of ${pages}</strong> · showing rows <strong style="color:var(--text);">${total?fi(start+1):0}–${fi(end)}</strong> of <strong style="color:var(--text);">${fi(total)}</strong></span>
+      <span style="flex:1;"></span>
+      <button class="filter-btn" ${_rawPage===0?'disabled style="opacity:.4;cursor:not-allowed;"':''} onclick="setRawPage(0)">⏮ First</button>
+      <button class="filter-btn" ${_rawPage===0?'disabled style="opacity:.4;cursor:not-allowed;"':''} onclick="setRawPage(${_rawPage-1})">◀ Prev</button>
+      <input type="number" min="1" max="${pages}" value="${_rawPage+1}" onchange="setRawPage(parseInt(this.value,10)-1)" style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:11px;text-align:center;"/>
+      <button class="filter-btn" ${_rawPage>=pages-1?'disabled style="opacity:.4;cursor:not-allowed;"':''} onclick="setRawPage(${_rawPage+1})">Next ▶</button>
+      <button class="filter-btn" ${_rawPage>=pages-1?'disabled style="opacity:.4;cursor:not-allowed;"':''} onclick="setRawPage(${pages-1})">Last ⏭</button>
+      <span style="opacity:.5;">|</span>
+      <label style="font-size:11px;">Per page:</label>
+      <select onchange="setRawPageSize(this.value)" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);">
+        ${[50,100,250,500,1000].map(n=>`<option value="${n}"${_rawPageSize===n?' selected':''}>${n}</option>`).join('')}
+      </select>
+    </div>`;
+
+  // Build the data table
+  const thead=`<tr>${headers.map(h=>`<th style="background:var(--surface);position:sticky;top:0;z-index:2;border-bottom:2px solid var(--border);padding:6px 8px;font-size:11px;font-weight:600;text-align:left;white-space:nowrap;">${_rawEscapeHtml(h)}</th>`).join('')}</tr>`;
+  const tbody=pageRows.map((r,ri)=>{
+    const cells=headers.map((_,i)=>{
+      const v=r[i];
+      const disp=_rawTruncate(v,80);
+      const fullTitle=String(v==null?'':v).replace(/"/g,'&quot;');
+      return`<td title="${fullTitle}" style="padding:5px 8px;font-size:11px;border-bottom:1px solid var(--border);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_rawEscapeHtml(disp)}</td>`;
+    }).join('');
+    return`<tr style="background:${ri%2?'var(--bg)':'var(--surface)'};">${cells}</tr>`;
+  }).join('');
+  const tableHtml=`<div style="overflow:auto;border:1px solid var(--border);border-radius:8px;max-height:70vh;">
+    <table style="border-collapse:collapse;min-width:100%;width:max-content;">
+      <thead>${thead}</thead>
+      <tbody>${tbody||`<tr><td colspan="${headers.length}" style="padding:30px;text-align:center;color:var(--muted);font-size:13px;">No rows match the current filter${_rawSearch?' + search':''}.</td></tr>`}</tbody>
+    </table>
+  </div>`;
+
+  target.innerHTML=`
+    <div style="background:linear-gradient(135deg,#fff5e6 0%,#fff 100%);border:1px solid #f5d499;border-left:4px solid var(--amber);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">📄 Raw Data — full loss-of-sale rows with every column</div>
+      <div style="font-size:12px;color:var(--muted);">Each row = one loss-of-sale entry from the sheet. Every original column (Date, Outlet, Customer, Phone, Reason, Sub-reason, Category, Sub-category, Size, Style, Color, Polish, Design#, Qty, Value, Customer Notes, Notes, Purpose, etc.) is shown verbatim. Filters from the global bar are applied. Hover any cell to see the full value if truncated.</div>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem;">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px;">
+        <span style="font-size:12px;color:var(--muted);font-weight:600;">Active filters:</span>
+        ${filterChips}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;">
+        <input type="text" value="${_rawSearch.replace(/"/g,'&quot;')}" placeholder="Search across all columns..." oninput="setRawSearch(this.value)" style="flex:1;min-width:240px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:12px;outline:none;"/>
+        <button class="filter-btn" onclick="downloadRawCsv()" style="background:var(--green);color:#fff;border-color:var(--green);font-weight:600;">⬇ Download CSV (${fi(total)} rows)</button>
+        <div style="font-size:11px;color:var(--muted);">
+          <strong style="color:var(--text);">${fi(total)}</strong> of <strong style="color:var(--text);">${fi(totalFiltered)}</strong> filtered ·
+          <strong style="color:var(--text);">${fi(_LS_ROWS.length)}</strong> total in sheet ·
+          <strong style="color:var(--text);">${headers.length}</strong> columns
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      ${pager('top')}
+      ${tableHtml}
+      ${pager('bottom')}
+    </div>`;
+}
 
 function renderSale(){
   if(typeof _KPI_DATA==='undefined'||!_KPI_DATA.length){
