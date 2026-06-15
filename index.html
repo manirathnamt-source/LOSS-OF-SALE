@@ -1416,15 +1416,15 @@ function _weeklyBuildTable(label,dim,clickFn,ctx){
     ${sortableTbl(headers,tblRows,totFooter)}
   </div>`;
 }
-// Bucket loss-rows + walkin-stores into week-keyed maps by RM/Cluster/Market/Store
+// Bucket loss-rows + walkin-stores into week-keyed maps by RM/Cluster/Market/Store/Reason
 function _weeklyBuildBuckets(lsRows,wkStores,f){
-  const{storeIdx,purposeIdx}=_LS_IDX;
+  const{storeIdx,purposeIdx,reasonIdx}=_LS_IDX;
   const byWeekLoss={};
   const byWeekPurp={};
   lsRows.forEach(r=>{
     const wk=getWeekKey(r._dk);
     if(!wk)return;
-    if(!byWeekLoss[wk])byWeekLoss[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+    if(!byWeekLoss[wk])byWeekLoss[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{},byReason:{}};
     byWeekLoss[wk].total++;
     const rm=r._rm||'Unknown';
     byWeekLoss[wk].byRM[rm]=(byWeekLoss[wk].byRM[rm]||0)+1;
@@ -1435,13 +1435,16 @@ function _weeklyBuildBuckets(lsRows,wkStores,f){
     byWeekLoss[wk].byMarket[market]=(byWeekLoss[wk].byMarket[market]||0)+1;
     const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
     byWeekLoss[wk].byStore[store]=(byWeekLoss[wk].byStore[store]||0)+1;
+    const reason=reasonIdx>=0?(String(r[reasonIdx]||'').trim()||'(blank)'):'(blank)';
+    byWeekLoss[wk].byReason[reason]=(byWeekLoss[wk].byReason[reason]||0)+1;
     if(purposeIdx>=0&&String(r[purposeIdx]||'').trim()){
-      if(!byWeekPurp[wk])byWeekPurp[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+      if(!byWeekPurp[wk])byWeekPurp[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{},byReason:{}};
       byWeekPurp[wk].total++;
       byWeekPurp[wk].byRM[rm]=(byWeekPurp[wk].byRM[rm]||0)+1;
       byWeekPurp[wk].byCluster[cluster]=(byWeekPurp[wk].byCluster[cluster]||0)+1;
       byWeekPurp[wk].byMarket[market]=(byWeekPurp[wk].byMarket[market]||0)+1;
       byWeekPurp[wk].byStore[store]=(byWeekPurp[wk].byStore[store]||0)+1;
+      byWeekPurp[wk].byReason[reason]=(byWeekPurp[wk].byReason[reason]||0)+1;
     }
   });
   const byWeekWk={};
@@ -1450,7 +1453,7 @@ function _weeklyBuildBuckets(lsRows,wkStores,f){
       if(!dateInRange(d.dk,f))return;
       const wk=getWeekKey(d.dk);
       if(!wk)return;
-      if(!byWeekWk[wk])byWeekWk[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+      if(!byWeekWk[wk])byWeekWk[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{},byReason:{}};
       byWeekWk[wk].total+=d.w;
       byWeekWk[wk].byRM[s.rm]=(byWeekWk[wk].byRM[s.rm]||0)+d.w;
       byWeekWk[wk].byCluster[s.cluster]=(byWeekWk[wk].byCluster[s.cluster]||0)+d.w;
@@ -1510,13 +1513,70 @@ window.showWeeklyDrill=function(scope,value){
       <div class="metric ${cap>=70?'green':cap>=30?'amber':'red'}"><div class="lbl">Purpose capture</div><div class="val">${cap}%</div><div class="sub">${fi(totalAllPurp)} of ${fi(totalAllLoss)}</div></div>
     </div>`;
   const tbl=_weeklyBuildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\'")}')`,ctx);
-  openModal(`📅 ${value} — store-wise weekly comparison`,subline,summary+(tbl||'<p class="muted-note">No store-level data in this scope.</p>'));
+  // Reason breakdown for the scoped subset — always loss mode
+  const reasonCtx={weeks,byWeekLoss:ctx.byWeekLoss,byWeekWk:ctx.byWeekWk,byWeekPurp:ctx.byWeekPurp,metric:'loss'};
+  const reasonTbl=_weeklyBuildTable('Reason','byReason',null,reasonCtx);
+  const reasonSection=reasonTbl?`<div class="section-lbl" style="margin-top:14px;">📋 Loss reasons week-over-week — within this ${scope}</div>${reasonTbl}`:'';
+  openModal(`📅 ${value} — store-wise weekly comparison`,subline,summary+(tbl||'<p class="muted-note">No store-level data in this scope.</p>')+reasonSection);
+};
+
+// Drill into a single reason — show stores + week-by-week count for that reason
+window.showWeeklyReasonModal=function(reason){
+  const f=getFilters();
+  const{reasonIdx,storeIdx}=_LS_IDX;
+  if(reasonIdx<0){openModal(`📋 ${reason}`,'No reason column','<p class="muted-note">Reason column not detected in the sheet.</p>');return;}
+  const rows=filterLS(f).filter(r=>{
+    const rv=String(r[reasonIdx]||'').trim()||'(blank)';
+    return rv===reason;
+  });
+  if(!rows.length){openModal(`📋 ${reason}`,'No data','<p class="muted-note">No loss entries with this reason in the current filter.</p>');return;}
+  // Bucket this reason's rows by week and by store
+  const byWeek={};
+  const byStore={};
+  rows.forEach(r=>{
+    const wk=getWeekKey(r._dk);
+    if(!wk)return;
+    byWeek[wk]=(byWeek[wk]||0)+1;
+    const sn=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
+    if(!byStore[sn])byStore[sn]={total:0,perWeek:{}};
+    byStore[sn].total++;
+    byStore[sn].perWeek[wk]=(byStore[sn].perWeek[wk]||0)+1;
+  });
+  const weeks=Object.keys(byWeek).sort();
+  const last=byWeek[weeks[weeks.length-1]]||0;
+  const prev=byWeek[weeks[weeks.length-2]]||0;
+  const wow=last-prev;
+  const wowPct=prev>0?Math.round((last-prev)/prev*100):(last>0?100:0);
+  // Week totals row
+  const weekHeaders=weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}</span>`);
+  const totalsRow=`<div class="card"><div class="card-title">Week-over-week count for this reason</div>
+    ${sortableTbl(['Reason',...weekHeaders,'Total','WoW Δ'],[{cells:[
+      `<strong>${reason}</strong>`,
+      ...weeks.map(w=>fi(byWeek[w]||0)),
+      `<strong>${fi(rows.length)}</strong>`,
+      wow===0?'<span class="badge" style="background:#f0f0f0;color:var(--muted);">→ 0</span>':`<span class="badge ${wow>0?'badge-red':'badge-green'}">${wow>0?'▲ +':'▼ '}${Math.abs(wow)} (${wowPct>0?'+':''}${wowPct}%)</span>`
+    ]}],null)}
+  </div>`;
+  // Store breakdown
+  const storeArr=Object.entries(byStore).sort((a,b)=>b[1].total-a[1].total);
+  const storeTbl=`<div class="card"><div class="card-title">Stores logging this reason (${storeArr.length})</div>
+    ${sortableTbl(
+      ['Store',...weeks.map(w=>getWeekRange(w)),'Total'],
+      storeArr.map(([sn,v])=>({cells:[
+        `<span class="clickable" onclick="showStoreModal('${sn.replace(/'/g,"\\'")}')">${sn}</span>`,
+        ...weeks.map(w=>fi(v.perWeek[w]||0)),
+        `<strong>${fi(v.total)}</strong>`
+      ]})),
+      null
+    )}
+  </div>`;
+  openModal(`📋 ${reason} — week-by-week`,`${fi(rows.length)} loss entries · ${storeArr.length} stores · ${weeks.length} weeks`,totalsRow+storeTbl);
 };
 
 function renderWeekly(){
   const f=getFilters();
   const rows=filterLS(f);
-  const{storeIdx,purposeIdx}=_LS_IDX;
+  const{storeIdx,purposeIdx,reasonIdx}=_LS_IDX;
   const target=document.getElementById('wkly');
 
   // ── Bucket LOSS by week ──
@@ -1525,7 +1585,7 @@ function renderWeekly(){
   rows.forEach(r=>{
     const wk=getWeekKey(r._dk);
     if(!wk)return;
-    if(!byWeekLoss[wk])byWeekLoss[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+    if(!byWeekLoss[wk])byWeekLoss[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{},byReason:{}};
     byWeekLoss[wk].total++;
     const rm=r._rm||'Unknown';
     byWeekLoss[wk].byRM[rm]=(byWeekLoss[wk].byRM[rm]||0)+1;
@@ -1536,14 +1596,17 @@ function renderWeekly(){
     byWeekLoss[wk].byMarket[market]=(byWeekLoss[wk].byMarket[market]||0)+1;
     const store=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';
     byWeekLoss[wk].byStore[store]=(byWeekLoss[wk].byStore[store]||0)+1;
+    const reason=reasonIdx>=0?(String(r[reasonIdx]||'').trim()||'(blank)'):'(blank)';
+    byWeekLoss[wk].byReason[reason]=(byWeekLoss[wk].byReason[reason]||0)+1;
     // Mirror into byWeekPurp only when Purpose is captured
     if(purposeIdx>=0&&String(r[purposeIdx]||'').trim()){
-      if(!byWeekPurp[wk])byWeekPurp[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+      if(!byWeekPurp[wk])byWeekPurp[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{},byReason:{}};
       byWeekPurp[wk].total++;
       byWeekPurp[wk].byRM[rm]=(byWeekPurp[wk].byRM[rm]||0)+1;
       byWeekPurp[wk].byCluster[cluster]=(byWeekPurp[wk].byCluster[cluster]||0)+1;
       byWeekPurp[wk].byMarket[market]=(byWeekPurp[wk].byMarket[market]||0)+1;
       byWeekPurp[wk].byStore[store]=(byWeekPurp[wk].byStore[store]||0)+1;
+      byWeekPurp[wk].byReason[reason]=(byWeekPurp[wk].byReason[reason]||0)+1;
     }
   });
 
@@ -1555,7 +1618,7 @@ function renderWeekly(){
       if(!dateInRange(d.dk,f))return;
       const wk=getWeekKey(d.dk);
       if(!wk)return;
-      if(!byWeekWk[wk])byWeekWk[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{}};
+      if(!byWeekWk[wk])byWeekWk[wk]={total:0,byRM:{},byCluster:{},byMarket:{},byStore:{},byReason:{}};
       byWeekWk[wk].total+=d.w;
       byWeekWk[wk].byRM[s.rm]=(byWeekWk[wk].byRM[s.rm]||0)+d.w;
       byWeekWk[wk].byCluster[s.cluster]=(byWeekWk[wk].byCluster[s.cluster]||0)+d.w;
@@ -1814,7 +1877,9 @@ function renderWeekly(){
     ${buildTable('Market','byMarket',k=>`showWeeklyDrill('market','${k.replace(/'/g,"\\\\'")}')`)}
     ${buildTable('Cluster','byCluster',k=>`showWeeklyDrill('cluster','${k.replace(/'/g,"\\\\'")}')`)}
     ${buildTable('RM','byRM',k=>`showWeeklyDrill('rm','${k.replace(/'/g,"\\\\'")}')`)}
-    ${buildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\\\'")}')`)}`;
+    ${buildTable('Store','byStore',k=>`showStoreModal('${k.replace(/'/g,"\\\\'")}')`)}
+    <div class="section-lbl" style="margin-top:18px;">📋 Loss reasons week-over-week — always shown in loss mode (independent of the toggle above)</div>
+    ${_weeklyBuildTable('Reason','byReason',k=>`showWeeklyReasonModal('${k.replace(/'/g,"\\\\'")}')`,{weeks,byWeekLoss,byWeekWk,byWeekPurp,metric:'loss'})}`;
 }
 
 // Legacy alias kept in case anything else references it
