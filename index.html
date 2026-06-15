@@ -1543,34 +1543,62 @@ window.showWeeklyReasonModal=function(reason){
     byStore[sn].perWeek[wk]=(byStore[sn].perWeek[wk]||0)+1;
   });
   const weeks=Object.keys(byWeek).sort();
+  // Render a single weekly cell with the count + delta vs the previous week (or "—" for the first)
+  function _wkCell(counts,i,upGood){
+    const cur=counts[i]||0;
+    if(i===0)return `<span style="font-weight:600;">${fi(cur)}</span><br><span style="font-size:9px;color:var(--muted);">—</span>`;
+    const prev=counts[i-1]||0;
+    const d=cur-prev;
+    const p=prev>0?Math.round((cur-prev)/prev*100):(cur>0?100:0);
+    let badge;
+    if(d===0)badge=`<span style="font-size:9px;color:var(--muted);">→ 0</span>`;
+    else{
+      const isUp=d>0;
+      const cls=(upGood===isUp)?'color:var(--green);':'color:var(--red);';
+      const arrow=isUp?'▲ +':'▼ ';
+      badge=`<span style="font-size:9px;font-weight:600;${cls}">${arrow}${Math.abs(d)} (${p>0?'+':''}${p}%)</span>`;
+    }
+    return `<span style="font-weight:600;">${fi(cur)}</span><br>${badge}`;
+  }
   const last=byWeek[weeks[weeks.length-1]]||0;
   const prev=byWeek[weeks[weeks.length-2]]||0;
   const wow=last-prev;
   const wowPct=prev>0?Math.round((last-prev)/prev*100):(last>0?100:0);
-  // Week totals row
-  const weekHeaders=weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}</span>`);
-  const totalsRow=`<div class="card"><div class="card-title">Week-over-week count for this reason</div>
-    ${sortableTbl(['Reason',...weekHeaders,'Total','WoW Δ'],[{cells:[
+  const weekHeaders=weeks.map(w=>`<span style="font-weight:600;">${getWeekRange(w)}<br><span style="font-size:9px;font-weight:500;color:var(--muted);">count · Δ vs prev</span></span>`);
+  const totalCounts=weeks.map(w=>byWeek[w]||0);
+  const totalsRow=`<div class="card"><div class="card-title">Week-over-week count for this reason — Δ shown beneath each week</div>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">Each cell: <strong>count</strong> on top, <strong>delta vs the previous week</strong> beneath (▲ red = more loss = bad, ▼ green = less loss = good). First week has no delta.</p>
+    ${sortableTbl(['Reason',...weekHeaders,'Total','Latest WoW Δ'],[{cells:[
       `<strong>${reason}</strong>`,
-      ...weeks.map(w=>fi(byWeek[w]||0)),
+      ...weeks.map((_,i)=>_wkCell(totalCounts,i,false)),
       `<strong>${fi(rows.length)}</strong>`,
       wow===0?'<span class="badge" style="background:#f0f0f0;color:var(--muted);">→ 0</span>':`<span class="badge ${wow>0?'badge-red':'badge-green'}">${wow>0?'▲ +':'▼ '}${Math.abs(wow)} (${wowPct>0?'+':''}${wowPct}%)</span>`
     ]}],null)}
   </div>`;
-  // Store breakdown
+  // Store breakdown — also surfaces per-week deltas
   const storeArr=Object.entries(byStore).sort((a,b)=>b[1].total-a[1].total);
-  const storeTbl=`<div class="card"><div class="card-title">Stores logging this reason (${storeArr.length})</div>
+  const storeTbl=`<div class="card"><div class="card-title">Stores logging this reason (${storeArr.length}) — per-store week-over-week with Δ</div>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">Same convention as above — count on top, delta vs the previous week beneath.</p>
     ${sortableTbl(
-      ['Store',...weeks.map(w=>getWeekRange(w)),'Total'],
-      storeArr.map(([sn,v])=>({cells:[
-        `<span class="clickable" onclick="showStoreModal('${sn.replace(/'/g,"\\'")}')">${sn}</span>`,
-        ...weeks.map(w=>fi(v.perWeek[w]||0)),
-        `<strong>${fi(v.total)}</strong>`
-      ]})),
+      ['Store',...weekHeaders,'Total','Latest WoW Δ'],
+      storeArr.map(([sn,v])=>{
+        const counts=weeks.map(w=>v.perWeek[w]||0);
+        const sl=counts[counts.length-1]||0;
+        const sp=counts[counts.length-2]||0;
+        const sd=sl-sp;
+        const spc=sp>0?Math.round((sl-sp)/sp*100):(sl>0?100:0);
+        const sBadge=sd===0?'<span class="badge" style="background:#f0f0f0;color:var(--muted);">→ 0</span>':`<span class="badge ${sd>0?'badge-red':'badge-green'}">${sd>0?'▲ +':'▼ '}${Math.abs(sd)} (${spc>0?'+':''}${spc}%)</span>`;
+        return{cells:[
+          `<span class="clickable" onclick="showStoreModal('${sn.replace(/'/g,"\\'")}')">${sn}</span>`,
+          ...weeks.map((_,i)=>_wkCell(counts,i,false)),
+          `<strong>${fi(v.total)}</strong>`,
+          sBadge
+        ]};
+      }),
       null
     )}
   </div>`;
-  openModal(`📋 ${reason} — week-by-week`,`${fi(rows.length)} loss entries · ${storeArr.length} stores · ${weeks.length} weeks`,totalsRow+storeTbl);
+  openModal(`📋 ${reason} — week-by-week (with per-week Δ)`,`${fi(rows.length)} loss entries · ${storeArr.length} stores · ${weeks.length} weeks`,totalsRow+storeTbl);
 };
 
 function renderWeekly(){
