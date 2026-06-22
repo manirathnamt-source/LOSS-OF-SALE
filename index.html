@@ -6502,6 +6502,104 @@ window.setReasonAnalysisReason=function(reason){_rsnSel=reason;show('rsn');};
 window.setRsnReason=function(reason){_rsnSel=reason;renderReasonAnalysis();};
 window.setRsnSource=function(useSub){_rsnUseSubReason=!!useSub;_rsnSel=null;renderReasonAnalysis();};
 
+// Drill into a single (reason, store) — list every row with Date / Staff /
+// Product / Customer Notes / Notes / Customer columns, sorted by staff.
+window.showReasonStoreDetail=function(reason,store){
+  const f=getFilters();
+  const{storeIdx,reasonIdx,subReasonIdx,empIdx,catIdx,subCatIdx,designIdx,sizeIdx,styleIdx,colorIdx,polishIdx,custNotesIdx,notes2Idx,custIdx,dateIdx,qtyIdx,valIdx}=_LS_IDX;
+  const activeReasonIdx=_rsnUseSubReason&&subReasonIdx>=0?subReasonIdx:reasonIdx;
+  const rows=filterLS(f).filter(r=>{
+    const rv=String(r[activeReasonIdx]||'').trim()||'(blank)';
+    if(rv!==reason)return false;
+    const sn=storeIdx>=0?String(r[storeIdx]||'').trim():'';
+    return sn===store;
+  });
+  if(!rows.length){
+    openModal(`🔎 ${store} — "${reason}"`,'No data','<p class="muted-note">No matching entries.</p>');
+    return;
+  }
+  // Sort by staff name (rows with empty staff go to the end)
+  rows.sort((a,b)=>{
+    const sa=empIdx>=0?String(a[empIdx]||'').trim():'';
+    const sb=empIdx>=0?String(b[empIdx]||'').trim():'';
+    if(!sa&&sb)return 1;
+    if(sa&&!sb)return -1;
+    return sa.toLowerCase().localeCompare(sb.toLowerCase());
+  });
+
+  // Build product description from category / sub-category / design# + attrs
+  function _product(r){
+    const main=[];
+    if(catIdx>=0){const v=String(r[catIdx]||'').trim();if(v)main.push(v);}
+    if(subCatIdx>=0){const v=String(r[subCatIdx]||'').trim();if(v)main.push(v);}
+    if(designIdx>=0){const v=String(r[designIdx]||'').trim();if(v&&v!=='-')main.push(`#${v}`);}
+    const attrs=[];
+    if(sizeIdx>=0){const v=String(r[sizeIdx]||'').trim();if(v)attrs.push(`size ${v}`);}
+    if(styleIdx>=0){const v=String(r[styleIdx]||'').trim();if(v)attrs.push(`style ${v}`);}
+    if(colorIdx>=0){const v=String(r[colorIdx]||'').trim();if(v)attrs.push(`color ${v}`);}
+    if(polishIdx>=0){const v=String(r[polishIdx]||'').trim();if(v)attrs.push(`polish ${v}`);}
+    const mainHtml=main.length?`<strong>${main.join(' / ')}</strong>`:'<span style="color:var(--muted);">—</span>';
+    const attrHtml=attrs.length?`<br><span style="font-size:10px;color:var(--muted);">${attrs.join(' · ')}</span>`:'';
+    return mainHtml+attrHtml;
+  }
+  function _muted(s){return s?String(s):'<span style="color:var(--muted);">—</span>';}
+
+  // Staff summary pills
+  const staffMap={};
+  rows.forEach(r=>{
+    const s=empIdx>=0?(String(r[empIdx]||'').trim()||'Unknown'):'Unknown';
+    staffMap[s]=(staffMap[s]||0)+1;
+  });
+  const staffArr=Object.entries(staffMap).sort((a,b)=>b[1]-a[1]);
+  const staffPills=staffArr.map(([k,v])=>`<span style="background:#fef4e8;color:#a85c14;border:1px solid #f0c8a0;border-radius:14px;padding:3px 10px;font-size:11px;font-weight:600;display:inline-block;margin:2px 4px 2px 0;">${k} · ${fi(v)}</span>`).join('');
+
+  // Group rows by staff so the table visually groups same staff together
+  let lastStaff='';
+  const tblRows=rows.map((r,i)=>{
+    const staff=empIdx>=0?(String(r[empIdx]||'').trim()||'(blank)'):'(blank)';
+    const newGroup=staff!==lastStaff;
+    lastStaff=staff;
+    const date=dateIdx>=0?fmtDK(toDayKey(r[dateIdx])||''):'—';
+    const cn=custNotesIdx>=0?String(r[custNotesIdx]||'').trim():'';
+    const nt=notes2Idx>=0?String(r[notes2Idx]||'').trim():'';
+    const cust=custIdx>=0?String(r[custIdx]||'').trim():'';
+    return{cells:[
+      i+1,
+      `<span style="font-size:11px;color:var(--muted);white-space:nowrap;">${date||'—'}</span>`,
+      newGroup?`<strong>${staff}</strong>`:`<span style="color:var(--muted);font-size:11px;">↳ ${staff}</span>`,
+      _product(r),
+      cn?`<span style="font-size:11px;line-height:1.4;">${cn}</span>`:'<span style="color:var(--muted);">—</span>',
+      nt?`<span style="font-size:11px;line-height:1.4;">${nt}</span>`:'<span style="color:var(--muted);">—</span>',
+      _muted(cust)
+    ]};
+  });
+
+  const totalQty=qtyIdx>=0?rows.reduce((s,r)=>s+n(r[qtyIdx]),0):0;
+  const totalVal=valIdx>=0?rows.reduce((s,r)=>s+n(r[valIdx]),0):0;
+  const wkStore=_WK&&_WK.stores?_WK.stores.find(s=>s.outletNorm===normStore(store)):null;
+  const subline=`${rows.length} entries · ${staffArr.length} staff · sorted by staff${wkStore?` · ${wkStore.market||'—'} · RM: ${wkStore.rm||'—'}`:''}`;
+
+  const summary=`
+    <div style="margin-bottom:10px;">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;">Staff contributors (sorted by entry count):</div>
+      ${staffPills}
+    </div>
+    <div class="metrics" style="margin-bottom:10px;">
+      <div class="metric red"><div class="lbl">Entries</div><div class="val">${fi(rows.length)}</div></div>
+      <div class="metric amber"><div class="lbl">Staff</div><div class="val">${staffArr.length}</div></div>
+      ${qtyIdx>=0?`<div class="metric"><div class="lbl">Qty</div><div class="val">${fi(totalQty)}</div></div>`:''}
+      ${valIdx>=0?`<div class="metric green"><div class="lbl">Value</div><div class="val">₹${fs(totalVal)}</div></div>`:''}
+    </div>`;
+
+  const tbl=sortableTbl(
+    ['#','Date','Staff','Product','Customer Notes','Notes','Customer'],
+    tblRows,
+    null
+  );
+
+  openModal(`🔎 ${store} — "${reason}"`,subline,summary+tbl);
+};
+
 function _rsnTopOf(map,n){
   return Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,n);
 }
@@ -6685,7 +6783,7 @@ function renderReasonAnalysis(){
   const storeTbl=sortableTbl(
     ['Store','RM','Market','Entries','Top staff','Top category','Qty','Value'],
     storeArr.map(([k,v])=>({cells:[
-      `<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      `<span class="clickable" onclick="showReasonStoreDetail('${reason.replace(/'/g,"\\'")}','${k.replace(/'/g,"\\'")}')">${k}</span>`,
       `<span style="font-size:11px;color:var(--muted);">${v.rm}</span>`,
       `<span style="font-size:11px;color:var(--muted);">${v.market}</span>`,
       fi(v.entries),
