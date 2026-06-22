@@ -150,6 +150,7 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
     <button class="tab-btn" onclick="show('purp')">🎯 Purpose</button>
     <button class="tab-btn" onclick="show('wkly')">Weekly Comparison</button>
     <button class="tab-btn" onclick="show('sale')">💰 Sale</button>
+    <button class="tab-btn" onclick="show('rsn')">🔎 Reason Analysis</button>
     <button class="tab-btn" onclick="show('raw')">📄 Raw Data</button>
     <button class="tab-btn" onclick="show('ask')">💬 Ask</button>
     <button class="tab-btn" onclick="show('ins')">💎 Insights</button>
@@ -162,6 +163,7 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
   <div id="purp" class="pane"><div class="loading">Loading...</div></div>
   <div id="wkly" class="pane"><div class="loading">Loading...</div></div>
   <div id="sale" class="pane"><div class="loading">Loading...</div></div>
+  <div id="rsn" class="pane"><div class="loading">Loading...</div></div>
   <div id="raw" class="pane"><div class="loading">Loading...</div></div>
   <div id="ask" class="pane"><div class="loading">Loading...</div></div>
   <div id="ins" class="pane"><div class="loading">Loading...</div></div>
@@ -334,7 +336,7 @@ function toDayKey(raw){
 
 // ── TAB SWITCHING ─────────────────────────────────────────
 function show(id){
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','purp','wkly','sale','raw','ask','ins','audit'][i]===id));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','purp','wkly','sale','rsn','raw','ask','ins','audit'][i]===id));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   // Clear Insights scope when navigating to any other tab so its modals aren't accidentally scoped
@@ -345,6 +347,7 @@ function show(id){
   if(id==='purp')renderPurpose();
   if(id==='wkly')renderWeekly();
   if(id==='sale')renderSale();
+  if(id==='rsn')renderReasonAnalysis();
   if(id==='raw')renderRawData();
   if(id==='ask')renderAsk();
   if(id==='ins')renderInsights();
@@ -1079,6 +1082,7 @@ function renderAll(){
   if(document.getElementById('purp').classList.contains('active'))renderPurpose();
   if(document.getElementById('wkly').classList.contains('active'))renderWeekly();
   if(document.getElementById('sale').classList.contains('active'))renderSale();
+  if(document.getElementById('rsn').classList.contains('active'))renderReasonAnalysis();
   if(document.getElementById('raw').classList.contains('active'))renderRawData();
   if(document.getElementById('ins').classList.contains('active'))renderInsights();
   if(document.getElementById('audit').classList.contains('active'))renderAudit();
@@ -6485,6 +6489,337 @@ function _kpiJoined(f){
 // Loose-match helpers — KPI rm/market labels may not exactly match loss-data labels.
 function _normRM(s){return String(s||'').toLowerCase().replace(/\s+/g,'').trim();}
 function _normMarket(s){return String(s||'').toLowerCase().replace(/\s+/g,'').trim();}
+
+// ═══════════════════════════════════════════════════════════════════
+// 🔎 REASON ANALYSIS TAB — pick a reason (e.g. "Perceived poor value
+// for money") and see a 360° gap-finder view: total entries, the RMs
+// and stores reporting it, top staff contributors, top categories /
+// sub-categories, and a phrase summary of the customer notes & notes.
+// ═══════════════════════════════════════════════════════════════════
+let _rsnSel=null;
+let _rsnUseSubReason=false; // toggle between col-I reason and col-J sub-reason
+window.setReasonAnalysisReason=function(reason){_rsnSel=reason;show('rsn');};
+window.setRsnReason=function(reason){_rsnSel=reason;renderReasonAnalysis();};
+window.setRsnSource=function(useSub){_rsnUseSubReason=!!useSub;_rsnSel=null;renderReasonAnalysis();};
+
+function _rsnTopOf(map,n){
+  return Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,n);
+}
+function _rsnTopLabel(map,n){
+  const top=_rsnTopOf(map,n);
+  if(!top.length)return'<span style="color:var(--muted);">—</span>';
+  return top.map(([k,c])=>`${k} <span style="color:var(--muted);font-size:10px;">(${c})</span>`).join(', ');
+}
+function renderReasonAnalysis(){
+  const target=document.getElementById('rsn');
+  const f=getFilters();
+  const{reasonIdx,subReasonIdx,storeIdx,catIdx,subCatIdx,empIdx,custIdx,custNotesIdx,notes2Idx,qtyIdx,valIdx,sizeIdx,styleIdx,colorIdx,polishIdx,designIdx}=_LS_IDX;
+  if(reasonIdx<0&&subReasonIdx<0){
+    target.innerHTML=`<div class="err-card">Reason column not detected in the loss-of-sale sheet.</div>`;
+    return;
+  }
+  const activeReasonIdx=_rsnUseSubReason&&subReasonIdx>=0?subReasonIdx:reasonIdx;
+  const sourceLabel=activeReasonIdx===subReasonIdx?'Sub-reason (col J)':'Reason Of Loss Of Sale (col I)';
+  const allRows=filterLS(f);
+
+  // Reason frequency (within current filter)
+  const reasonMap={};
+  allRows.forEach(r=>{
+    const v=String(r[activeReasonIdx]||'').trim()||'(blank)';
+    reasonMap[v]=(reasonMap[v]||0)+1;
+  });
+  const reasonArr=Object.entries(reasonMap).sort((a,b)=>b[1]-a[1]);
+  if(!_rsnSel||!reasonMap[_rsnSel]){
+    _rsnSel=reasonArr.length?reasonArr[0][0]:null;
+  }
+
+  // Source toggle (Reason vs Sub-reason) — only if both exist
+  const sourceToggle=(subReasonIdx>=0&&reasonIdx>=0&&subReasonIdx!==reasonIdx)?`
+    <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px;">
+      <button onclick="setRsnSource(false)" style="border:0;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${!_rsnUseSubReason?'var(--red)':'var(--surface)'};color:${!_rsnUseSubReason?'#fff':'var(--muted)'};">Reason Of Loss Of Sale (col I)</button>
+      <div style="width:1px;background:var(--border);"></div>
+      <button onclick="setRsnSource(true)" style="border:0;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${_rsnUseSubReason?'var(--red)':'var(--surface)'};color:${_rsnUseSubReason?'#fff':'var(--muted)'};">Sub-reason (col J)</button>
+    </div>`:'';
+
+  const selectorHtml=`
+    <div class="card" style="margin-bottom:1rem;">
+      ${sourceToggle}
+      <div style="font-size:11px;font-weight:600;color:var(--muted);margin:6px 0 8px 0;">Pick a reason to deep-dive (showing ${reasonArr.length} reason${reasonArr.length===1?'':'s'} from <strong>${sourceLabel}</strong> · sorted by volume):</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow-y:auto;">
+        ${reasonArr.map(([k,c])=>`
+          <button onclick="setRsnReason('${k.replace(/'/g,"\\'")}')"
+            style="background:${k===_rsnSel?'var(--red)':'var(--surface)'};color:${k===_rsnSel?'#fff':'var(--text)'};border:1px solid ${k===_rsnSel?'var(--red)':'var(--border)'};border-radius:18px;padding:5px 12px;font-size:11px;cursor:pointer;${k===_rsnSel?'font-weight:600;':''}">
+            ${k} <span style="opacity:.75;">(${fi(c)})</span>
+          </button>
+        `).join('')}
+      </div>
+    </div>`;
+
+  if(!_rsnSel){
+    target.innerHTML=`
+      <div style="background:linear-gradient(135deg,#fdeaea 0%,#fff 100%);border:1px solid #f0c0c0;border-left:4px solid var(--red);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
+        <div style="font-size:18px;font-weight:600;">🔎 Reason Analysis — gap finder</div>
+        <div style="font-size:12px;color:var(--muted);">Pick a reason below to see who's reporting it, in which stores, by which staff, on which products, and what customers actually said.</div>
+      </div>
+      ${selectorHtml}
+      <p class="muted-note" style="padding:1rem;">No reasons in the current filter selection.</p>`;
+    return;
+  }
+
+  const reason=_rsnSel;
+  const rows=allRows.filter(r=>(String(r[activeReasonIdx]||'').trim()||'(blank)')===reason);
+  const total=rows.length;
+
+  // ── Aggregations ──
+  const rmMap={},storeMap={},staffMap={},catMap={},subCatMap={},sizeMap={},styleMap={},colorMap={},polishMap={},designMap={},custMap={};
+  rows.forEach(r=>{
+    const store=storeIdx>=0?String(r[storeIdx]||'Unknown').trim()||'Unknown':'Unknown';
+    const rm=r._rm||'Unknown';
+    const market=r._wkStore?r._wkStore.market:'Unknown';
+    const cluster=r._wkStore?r._wkStore.cluster:'Unknown';
+    const staff=empIdx>=0?(String(r[empIdx]||'').trim()||'Unknown'):'Unknown';
+    const cat=catIdx>=0?(String(r[catIdx]||'').trim()||'Unknown'):'Unknown';
+    const subCat=subCatIdx>=0?(String(r[subCatIdx]||'').trim()):'';
+    const sz=sizeIdx>=0?(String(r[sizeIdx]||'').trim()):'';
+    const stl=styleIdx>=0?(String(r[styleIdx]||'').trim()):'';
+    const col=colorIdx>=0?(String(r[colorIdx]||'').trim()):'';
+    const pol=polishIdx>=0?(String(r[polishIdx]||'').trim()):'';
+    const dn=designIdx>=0?(String(r[designIdx]||'').trim()):'';
+    const cust=custIdx>=0?(String(r[custIdx]||'').trim()||'Unknown'):'Unknown';
+    const qty=qtyIdx>=0?n(r[qtyIdx]):0;
+    const val=valIdx>=0?n(r[valIdx]):0;
+
+    if(!rmMap[rm])rmMap[rm]={entries:0,stores:new Set(),markets:new Set(),staff:{},cat:{},qty:0,val:0};
+    rmMap[rm].entries++;rmMap[rm].stores.add(store);rmMap[rm].markets.add(market);
+    if(staff!=='Unknown')rmMap[rm].staff[staff]=(rmMap[rm].staff[staff]||0)+1;
+    rmMap[rm].cat[cat]=(rmMap[rm].cat[cat]||0)+1;
+    rmMap[rm].qty+=qty;rmMap[rm].val+=val;
+
+    if(!storeMap[store])storeMap[store]={entries:0,rm,market,cluster,staff:{},cat:{},qty:0,val:0};
+    storeMap[store].entries++;
+    if(staff!=='Unknown')storeMap[store].staff[staff]=(storeMap[store].staff[staff]||0)+1;
+    storeMap[store].cat[cat]=(storeMap[store].cat[cat]||0)+1;
+    storeMap[store].qty+=qty;storeMap[store].val+=val;
+
+    if(staff!=='Unknown'){
+      if(!staffMap[staff])staffMap[staff]={entries:0,stores:new Set(),rms:new Set(),cat:{}};
+      staffMap[staff].entries++;staffMap[staff].stores.add(store);staffMap[staff].rms.add(rm);
+      staffMap[staff].cat[cat]=(staffMap[staff].cat[cat]||0)+1;
+    }
+
+    if(!catMap[cat])catMap[cat]={entries:0,stores:new Set(),subCat:{},qty:0,val:0};
+    catMap[cat].entries++;catMap[cat].stores.add(store);
+    if(subCat)catMap[cat].subCat[subCat]=(catMap[cat].subCat[subCat]||0)+1;
+    catMap[cat].qty+=qty;catMap[cat].val+=val;
+
+    if(subCat)subCatMap[subCat]=(subCatMap[subCat]||0)+1;
+    if(sz)sizeMap[sz]=(sizeMap[sz]||0)+1;
+    if(stl)styleMap[stl]=(styleMap[stl]||0)+1;
+    if(col)colorMap[col]=(colorMap[col]||0)+1;
+    if(pol)polishMap[pol]=(polishMap[pol]||0)+1;
+    if(dn&&dn!=='-'&&dn.length>=3)designMap[dn]=(designMap[dn]||0)+1;
+    custMap[cust]=(custMap[cust]||0)+1;
+  });
+
+  const totalQty=rows.reduce((s,r)=>s+(qtyIdx>=0?n(r[qtyIdx]):0),0);
+  const totalVal=rows.reduce((s,r)=>s+(valIdx>=0?n(r[valIdx]):0),0);
+
+  // ── Notes phrase summary ──
+  const noteCols=[custNotesIdx,notes2Idx].filter(v=>v>=0&&v!==undefined);
+  const STOP=new Set(['the','of','and','in','on','for','to','a','an','is','are','with','our','my','your','i','no','not','by','at','this','that','was','it','be','have','has','as','from','but','or','if','do','does','did','can','will','want','wanted','need','needed','looking','look','please','customer','cust','rs','some','more','same','also','any','all','one','two','should','would','only','told','said','asked','came','went','dont','don','they','them','their','her','his','she','he','were','been','wants','request','requested','show','showed','than','then','when','where','which','what','who','why','how','here','there','very','just','too','out','up','down','off','about','into','over','under','again','still','now','already','much','many','few','little','first','last','next','old','new']);
+  const SIZE_PAT=/^\d+(\.\d+|[-–]\d+(\.\d+)?)?$/;
+  const phraseMap={};
+  rows.forEach((r,i)=>{
+    if(!noteCols.length)return;
+    const text=noteCols.map(c=>String(r[c]||'')).join(' | ');
+    if(!text.trim())return;
+    const toks=String(text).toLowerCase().replace(/[^a-z0-9.\-]+/g,' ').split(/\s+/)
+      .filter(t=>t&&!STOP.has(t)&&(t.length>=3||SIZE_PAT.test(t)));
+    const phrases=new Set();
+    toks.forEach(t=>{if(t.length>=4||SIZE_PAT.test(t))phrases.add(t);});
+    for(let j=0;j<toks.length-1;j++)phrases.add(toks[j]+' '+toks[j+1]);
+    for(let j=0;j<toks.length-2;j++)phrases.add(toks[j]+' '+toks[j+1]+' '+toks[j+2]);
+    phrases.forEach(p=>{if(!phraseMap[p])phraseMap[p]=[];phraseMap[p].push(i);});
+  });
+  const topPhrases=Object.entries(phraseMap).filter(([,arr])=>arr.length>=2).sort((a,b)=>b[1].length-a[1].length).slice(0,30);
+
+  // Top sample customer notes (first 12 distinct, non-empty)
+  const sampleNotes=[];
+  const seenNoteText=new Set();
+  for(const r of rows){
+    if(sampleNotes.length>=12)break;
+    const text=noteCols.map(c=>String(r[c]||'').trim()).filter(Boolean).join(' · ');
+    if(!text)continue;
+    const key=text.toLowerCase().slice(0,80);
+    if(seenNoteText.has(key))continue;
+    seenNoteText.add(key);
+    const store=storeIdx>=0?String(r[storeIdx]||''):'';
+    sampleNotes.push({store,text:text.length>240?text.slice(0,240)+'…':text});
+  }
+
+  // ── Headline narrative (one-line gist) ──
+  const topPhraseForGist=topPhrases[0]?topPhrases[0][0]:'';
+  const topCatForGist=_rsnTopOf(catMap,1)[0];
+  const topRmForGist=_rsnTopOf(Object.fromEntries(Object.entries(rmMap).map(([k,v])=>[k,v.entries])),1)[0];
+  const topStaffForGist=_rsnTopOf(staffMap,1)[0]?_rsnTopOf(Object.fromEntries(Object.entries(staffMap).map(([k,v])=>[k,v.entries])),1)[0]:null;
+  const headline=`<strong>${fi(total)} loss entries</strong> tagged <strong>"${reason}"</strong> across <strong>${Object.keys(storeMap).length} stores</strong> and <strong>${Object.keys(rmMap).length} RMs</strong>${topRmForGist?` — most reported by <strong>${topRmForGist[0]}</strong> (${topRmForGist[1]} entries)`:''}${topCatForGist?`, mostly in <strong>${topCatForGist[0]}</strong> category`:''}${topStaffForGist?`, top staff contributor <strong>${topStaffForGist[0]}</strong> (${topStaffForGist[1]} entries)`:''}${topPhraseForGist?`. Recurring phrase in notes: <strong>"${topPhraseForGist}"</strong>`:''}.`;
+
+  // ── Tables ──
+  const rmArr=Object.entries(rmMap).sort((a,b)=>b[1].entries-a[1].entries);
+  const rmTbl=sortableTbl(
+    ['RM','Entries','Stores','Markets','Top staff','Top category','Qty','Value'],
+    rmArr.map(([k,v])=>({cells:[
+      `<strong>${k}</strong>`,
+      fi(v.entries),
+      fi(v.stores.size),
+      fi(v.markets.size),
+      _rsnTopLabel(v.staff,2),
+      _rsnTopLabel(v.cat,2),
+      qtyIdx>=0?fi(v.qty):'—',
+      valIdx>=0?`₹${fs(v.val)}`:'—'
+    ]})),
+    ['Total',fi(total),fi(Object.keys(storeMap).length),'','','',qtyIdx>=0?fi(totalQty):'—',valIdx>=0?`₹${fs(totalVal)}`:'—']
+  );
+
+  const storeArr=Object.entries(storeMap).sort((a,b)=>b[1].entries-a[1].entries).slice(0,50);
+  const storeTbl=sortableTbl(
+    ['Store','RM','Market','Entries','Top staff','Top category','Qty','Value'],
+    storeArr.map(([k,v])=>({cells:[
+      `<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      `<span style="font-size:11px;color:var(--muted);">${v.rm}</span>`,
+      `<span style="font-size:11px;color:var(--muted);">${v.market}</span>`,
+      fi(v.entries),
+      _rsnTopLabel(v.staff,2),
+      _rsnTopLabel(v.cat,1),
+      qtyIdx>=0?fi(v.qty):'—',
+      valIdx>=0?`₹${fs(v.val)}`:'—'
+    ]})),
+    null
+  );
+
+  const staffArr=Object.entries(staffMap).sort((a,b)=>b[1].entries-a[1].entries).slice(0,30);
+  const staffTbl=staffArr.length?sortableTbl(
+    ['Staff','Entries','Stores','RMs','Top category'],
+    staffArr.map(([k,v])=>({cells:[
+      `<strong>${k}</strong>`,
+      fi(v.entries),
+      fi(v.stores.size),
+      fi(v.rms.size),
+      _rsnTopLabel(v.cat,2)
+    ]})),
+    null
+  ):'<p class="muted-note">No staff column / data available.</p>';
+
+  const catArr=Object.entries(catMap).sort((a,b)=>b[1].entries-a[1].entries);
+  const catTbl=sortableTbl(
+    ['Category','Entries','Stores','Top sub-category','Qty','Value'],
+    catArr.map(([k,v])=>({cells:[
+      `<strong>${k}</strong>`,
+      fi(v.entries),
+      fi(v.stores.size),
+      _rsnTopLabel(v.subCat,3),
+      qtyIdx>=0?fi(v.qty):'—',
+      valIdx>=0?`₹${fs(v.val)}`:'—'
+    ]})),
+    null
+  );
+
+  const attrCard=(title,map,n)=>{
+    const arr=_rsnTopOf(map,n);
+    if(!arr.length)return'';
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:6px;">${title}</div>
+      ${arr.map(([k,c])=>`<div style="font-size:12px;display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);"><span>${k}</span><span style="color:var(--muted);font-weight:600;">${fi(c)}</span></div>`).join('')}
+    </div>`;
+  };
+
+  const phraseTbl=topPhrases.length?sortableTbl(
+    ['Phrase','Mentions','Sample','% of entries'],
+    topPhrases.map(([p,arr])=>{
+      const sampleRow=rows[arr[0]];
+      const sampleText=noteCols.map(c=>String(sampleRow[c]||'').trim()).filter(Boolean).join(' · ');
+      const short=sampleText.length>120?sampleText.slice(0,120)+'…':sampleText;
+      return{cells:[
+        `<strong>${p}</strong>`,
+        fi(arr.length),
+        `<span style="font-size:11px;color:var(--muted);">${short||'—'}</span>`,
+        `${Math.round(arr.length/total*100)}%`
+      ]};
+    }),
+    null
+  ):'<p class="muted-note">No recurring phrases (needs ≥2 mentions in Customer Notes / Notes).</p>';
+
+  const sampleHtml=sampleNotes.length?sampleNotes.map(s=>`
+    <div style="border-left:3px solid var(--red);padding:6px 12px;margin-bottom:6px;background:var(--surface);border-radius:0 6px 6px 0;">
+      <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:2px;">${s.store||'—'}</div>
+      <div style="font-size:12px;line-height:1.45;">${s.text}</div>
+    </div>
+  `).join(''):'<p class="muted-note">No customer notes captured for this reason.</p>';
+
+  target.innerHTML=`
+    <div style="background:linear-gradient(135deg,#fdeaea 0%,#fff 100%);border:1px solid #f0c0c0;border-left:4px solid var(--red);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">🔎 Reason Analysis — gap finder</div>
+      <div style="font-size:12px;color:var(--muted);">${headline}</div>
+    </div>
+
+    ${selectorHtml}
+
+    <div class="metrics" style="margin-bottom:1rem;">
+      <div class="metric red"><div class="lbl">Total entries</div><div class="val">${fi(total)}</div><div class="sub">${Math.round(total/allRows.length*100)}% of all loss in scope</div></div>
+      <div class="metric"><div class="lbl">Stores reporting</div><div class="val">${Object.keys(storeMap).length}</div><div class="sub">${Object.keys(rmMap).length} RMs · ${[...new Set(Object.values(rmMap).flatMap(v=>[...v.markets]))].length} markets</div></div>
+      <div class="metric blue"><div class="lbl">Categories affected</div><div class="val">${Object.keys(catMap).length}</div><div class="sub">${Object.keys(subCatMap).length} sub-categories</div></div>
+      <div class="metric amber"><div class="lbl">Staff contributors</div><div class="val">${Object.keys(staffMap).length}</div></div>
+      ${valIdx>=0?`<div class="metric green"><div class="lbl">Loss value</div><div class="val">₹${fs(totalVal)}</div><div class="sub">${qtyIdx>=0?fi(totalQty)+' units':''}</div></div>`:''}
+    </div>
+
+    <div class="card">
+      <div class="card-title">By RM — which RM is reporting this most, and where</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">Each RM ranked by entries. "Stores" = how many distinct stores under that RM logged this reason. "Top staff" / "Top category" highlight where each RM's volume is concentrated.</p>
+      ${rmTbl}
+    </div>
+
+    <div class="card">
+      <div class="card-title">By store — top ${Math.min(50,Object.keys(storeMap).length)} stores logging this reason</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">Click a store to open the standard store-detail modal. Top staff / top category are the dominant contributor inside that store.</p>
+      ${storeTbl}
+    </div>
+
+    <div class="card">
+      <div class="card-title">By staff — who is contributing most entries</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">Top 30 staff by entry count. High concentration at one staff member can flag either a problem area or simply a busy assignment — compare against the staff's store and RM context.</p>
+      ${staffTbl}
+    </div>
+
+    <div class="card">
+      <div class="card-title">By category — which products are driving this reason</div>
+      ${catTbl}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Product attributes — top values seen in this reason</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 10px 0;">Top recurring values across Size / Style / Color / Polish / Design#. Customer type at far right.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
+        ${attrCard('Size',sizeMap,8)}
+        ${attrCard('Style',styleMap,8)}
+        ${attrCard('Color',colorMap,8)}
+        ${attrCard('Polish',polishMap,8)}
+        ${attrCard('Design #',designMap,8)}
+        ${attrCard('Customer type',custMap,8)}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 Notes summary — recurring phrases across Customer Notes + Notes</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">1-3 word phrases extracted from <strong>Customer Notes</strong> and <strong>Notes</strong> columns, stop-words filtered, ≥2 mentions. The "Sample" shows one row's full note containing that phrase. Use this to read the gist of what customers actually said.</p>
+      ${phraseTbl}
+    </div>
+
+    <div class="card">
+      <div class="card-title">💬 Sample customer notes (up to 12 distinct)</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">A spread of actual quotes pulled from rows tagged with this reason. Each block shows the store followed by the note text.</p>
+      ${sampleHtml}
+    </div>`;
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // 📄 RAW DATA TAB — every column from the loss-of-sale sheet, with the
