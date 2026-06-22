@@ -6670,7 +6670,7 @@ function renderReasonAnalysis(){
   const total=rows.length;
 
   // ── Aggregations ──
-  const rmMap={},storeMap={},staffMap={},catMap={},subCatMap={},sizeMap={},styleMap={},colorMap={},polishMap={},designMap={},custMap={};
+  const rmMap={},storeMap={},staffMap={},catMap={},subCatMap={},subCatFull={},sizeMap={},styleMap={},colorMap={},polishMap={},designMap={},custMap={};
   rows.forEach(r=>{
     const store=storeIdx>=0?String(r[storeIdx]||'Unknown').trim()||'Unknown':'Unknown';
     const rm=r._rm||'Unknown';
@@ -6711,7 +6711,22 @@ function renderReasonAnalysis(){
     if(subCat)catMap[cat].subCat[subCat]=(catMap[cat].subCat[subCat]||0)+1;
     catMap[cat].qty+=qty;catMap[cat].val+=val;
 
-    if(subCat)subCatMap[subCat]=(subCatMap[subCat]||0)+1;
+    if(subCat){
+      subCatMap[subCat]=(subCatMap[subCat]||0)+1;
+      if(!subCatFull[subCat])subCatFull[subCat]={entries:0,stores:new Set(),cat:{},staff:{},design:{},sz:{},stl:{},col:{},pol:{},qty:0,val:0};
+      const sb=subCatFull[subCat];
+      sb.entries++;
+      sb.stores.add(store);
+      sb.cat[cat]=(sb.cat[cat]||0)+1;
+      if(staff!=='Unknown')sb.staff[staff]=(sb.staff[staff]||0)+1;
+      if(dn&&dn!=='-'&&dn.length>=3)sb.design[dn]=(sb.design[dn]||0)+1;
+      if(sz)sb.sz[sz]=(sb.sz[sz]||0)+1;
+      if(stl)sb.stl[stl]=(sb.stl[stl]||0)+1;
+      if(col)sb.col[col]=(sb.col[col]||0)+1;
+      if(pol)sb.pol[pol]=(sb.pol[pol]||0)+1;
+      sb.qty+=qty;
+      sb.val+=val;
+    }
     if(sz)sizeMap[sz]=(sizeMap[sz]||0)+1;
     if(stl)styleMap[stl]=(styleMap[stl]||0)+1;
     if(col)colorMap[col]=(colorMap[col]||0)+1;
@@ -6809,6 +6824,23 @@ function renderReasonAnalysis(){
     null
   ):'<p class="muted-note">No staff column / data available.</p>';
 
+  const subCatArr=Object.entries(subCatFull).sort((a,b)=>b[1].entries-a[1].entries);
+  const subCatTbl=subCatArr.length?sortableTbl(
+    ['Sub-category','Entries','Stores','Top category','Top design#','Top staff','Top size','Qty','Value'],
+    subCatArr.map(([k,v])=>({cells:[
+      `<span class="clickable" onclick="showRsnSubCatDetail('${reason.replace(/'/g,"\\'")}','${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      fi(v.entries),
+      fi(v.stores.size),
+      _rsnTopLabel(v.cat,2),
+      _rsnTopLabel(v.design,2),
+      _rsnTopLabel(v.staff,2),
+      _rsnTopLabel(v.sz,2),
+      qtyIdx>=0?fi(v.qty):'—',
+      valIdx>=0?`₹${fs(v.val)}`:'—'
+    ]})),
+    null
+  ):'<p class="muted-note">No sub-category column / data available.</p>';
+
   const catArr=Object.entries(catMap).sort((a,b)=>b[1].entries-a[1].entries);
   const catTbl=sortableTbl(
     ['Category','Entries','Stores','Top sub-category','Qty','Value'],
@@ -6895,6 +6927,12 @@ function renderReasonAnalysis(){
     </div>
 
     <div class="card">
+      <div class="card-title">By sub-category — drill one level deeper</div>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 8px 0;">Each row groups by the loss-sheet's <strong>Product Sub Category</strong> column for this reason. Click a sub-category to see the per-store / per-product breakdown.</p>
+      ${subCatTbl}
+    </div>
+
+    <div class="card">
       <div class="card-title">Product attributes — top values seen in this reason</div>
       <p style="font-size:11px;color:var(--muted);margin:0 0 10px 0;">Top recurring values across Size / Style / Color / Polish / Design#. Customer type at far right.</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
@@ -6969,6 +7007,66 @@ window.showRsnCatDetail=function(reason,category){
   );
   const storeCount=new Set(rows.map(r=>storeIdx>=0?String(r[storeIdx]||'').trim():'').filter(Boolean)).size;
   openModal(`📦 ${category} — "${reason}"`,`${fi(rows.length)} entries · ${arr.length} distinct products · ${storeCount} stores`,tbl);
+};
+
+// Drill into a single (reason, sub-category) — list every store + product
+// (design# / size / style / color / polish) with its count and top staff.
+window.showRsnSubCatDetail=function(reason,subCategory){
+  const f=getFilters();
+  const{storeIdx,reasonIdx,subReasonIdx,catIdx,subCatIdx,designIdx,sizeIdx,styleIdx,colorIdx,polishIdx,empIdx,qtyIdx,valIdx}=_LS_IDX;
+  const activeReasonIdx=_rsnUseSubReason&&subReasonIdx>=0?subReasonIdx:reasonIdx;
+  if(subCatIdx<0){openModal(`📦 ${subCategory}`,'Column missing','<p class="muted-note">Sub-category column not detected.</p>');return;}
+  const rows=filterLS(f).filter(r=>{
+    const rv=String(r[activeReasonIdx]||'').trim()||'(blank)';
+    if(rv!==reason)return false;
+    return String(r[subCatIdx]||'').trim()===subCategory;
+  });
+  if(!rows.length){openModal(`📦 ${subCategory} — "${reason}"`,'No data','<p class="muted-note">No matching entries.</p>');return;}
+  // Group by (store, category, design#) so each row = unique store + product combo
+  const map={};
+  rows.forEach(r=>{
+    const store=storeIdx>=0?(String(r[storeIdx]||'').trim()||'Unknown'):'Unknown';
+    const cat=catIdx>=0?(String(r[catIdx]||'').trim()||'—'):'—';
+    const dn=designIdx>=0?String(r[designIdx]||'').trim():'';
+    const sz=sizeIdx>=0?String(r[sizeIdx]||'').trim():'';
+    const stl=styleIdx>=0?String(r[styleIdx]||'').trim():'';
+    const col=colorIdx>=0?String(r[colorIdx]||'').trim():'';
+    const pol=polishIdx>=0?String(r[polishIdx]||'').trim():'';
+    const designKey=(dn&&dn!=='-'?`#${dn}`:'(no design#)');
+    const key=`${store}||${cat}||${designKey}`;
+    if(!map[key])map[key]={store,cat,design:designKey,count:0,staff:{},sz:{},stl:{},col:{},pol:{},qty:0,val:0};
+    const m=map[key];
+    m.count++;
+    const sf=empIdx>=0?String(r[empIdx]||'').trim():'';
+    if(sf)m.staff[sf]=(m.staff[sf]||0)+1;
+    if(sz)m.sz[sz]=(m.sz[sz]||0)+1;
+    if(stl)m.stl[stl]=(m.stl[stl]||0)+1;
+    if(col)m.col[col]=(m.col[col]||0)+1;
+    if(pol)m.pol[pol]=(m.pol[pol]||0)+1;
+    m.qty+=qtyIdx>=0?n(r[qtyIdx]):0;
+    m.val+=valIdx>=0?n(r[valIdx]):0;
+  });
+  const arr=Object.values(map).sort((a,b)=>b.count-a.count);
+  const _topMap=(m,nn)=>Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,nn).map(([k,c])=>`${k} <span style="color:var(--muted);font-size:10px;">(${c})</span>`).join(', ')||'<span style="color:var(--muted);">—</span>';
+  const tbl=sortableTbl(
+    ['Store','Category','Design #','Count','Top staff','Top size','Top style','Top color','Top polish','Qty','Value'],
+    arr.map(x=>({cells:[
+      `<span class="clickable" onclick="showStoreModal('${x.store.replace(/'/g,"\\'")}')">${x.store}</span>`,
+      x.cat,
+      `<strong>${x.design}</strong>`,
+      fi(x.count),
+      _topMap(x.staff,2),
+      _topMap(x.sz,2),
+      _topMap(x.stl,2),
+      _topMap(x.col,2),
+      _topMap(x.pol,2),
+      qtyIdx>=0?fi(x.qty):'—',
+      valIdx>=0?`₹${fs(x.val)}`:'—'
+    ]})),
+    ['Total','','',fi(rows.length),'','','','','',qtyIdx>=0?fi(rows.reduce((s,r)=>s+(qtyIdx>=0?n(r[qtyIdx]):0),0)):'—',valIdx>=0?`₹${fs(rows.reduce((s,r)=>s+(valIdx>=0?n(r[valIdx]):0),0))}`:'—']
+  );
+  const storeCount=new Set(arr.map(x=>x.store)).size;
+  openModal(`📦 ${subCategory} — "${reason}"`,`${fi(rows.length)} entries · ${arr.length} rows · ${storeCount} stores`,tbl);
 };
 
 // Drill into a single (reason, attributeKey, attributeValue) — list each
