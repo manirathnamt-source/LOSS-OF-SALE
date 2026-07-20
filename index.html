@@ -594,6 +594,60 @@ function resetFilters(){
   renderAll();
 }
 
+// One-click preset: select the 10 flagship stores in the Store filter.
+// Matches against actual walkin-sheet outlet names using exact / normalised /
+// store-code lookups so minor spelling or paren-suffix differences still resolve.
+const TOP10_STORES=[
+  'BLR - JAYNAGAR (BLRJAY)',
+  'BLR - HSR LAYOUT (BLRHSR)',
+  'BLR - COMMERCIAL STREET (BLRCST)',
+  'CHN - T NAGAR (CHNCTN)',
+  'HYD - SARATH CITY MALL (HYDSCC)',
+  'BLR - FORUM SOUTH BANGALORE (BLRFSB)',
+  'BLR - PHOENIX MALL WHITEFIELD (BLRWPX)',
+  'MYS - DEVRAJ URS ROAD (MYSDUR)',
+  'CBT - RS PURAM (CBTRSP)',
+  'BLR - INDIRANAGAR (BLRIND)'
+];
+window.selectTop10Stores=function(){
+  if(!_WK||!_WK.stores)return;
+  const resolved=[];
+  const missing=[];
+  TOP10_STORES.forEach(want=>{
+    // Try exact match on outlet name first
+    let hit=_WK.stores.find(s=>s.outlet===want);
+    if(!hit){
+      // Normalised (strips parenthesised suffix + case)
+      const wantNorm=normStore(want);
+      hit=_WK.stores.find(s=>s.outletNorm===wantNorm);
+    }
+    if(!hit){
+      // Match by parenthesised store code (e.g. BLRJAY)
+      const cm=want.match(/\(([^)]+)\)/);
+      if(cm){
+        const code=cm[1].toUpperCase();
+        hit=_WK.stores.find(s=>{
+          const m=s.outlet.match(/\(([^)]+)\)/);
+          return m&&m[1].toUpperCase()===code;
+        })||_WK.stores.find(s=>s.outletNorm.includes(code));
+      }
+    }
+    if(hit)resolved.push(hit.outlet);
+    else missing.push(want);
+  });
+  if(!resolved.length){
+    console.warn('[selectTop10Stores] none of the flagship stores matched — walkin sheet names may differ. Wanted:',TOP10_STORES);
+    return;
+  }
+  _F.store=resolved;
+  document.querySelectorAll('.ms-panel').forEach(p=>p.style.display='none');
+  buildFilterBar();
+  renderAll();
+  if(missing.length){
+    console.warn('[selectTop10Stores] resolved',resolved.length,'/',TOP10_STORES.length,'· missing:',missing);
+  }
+};
+
 // ── MULTI-SELECT WIDGET ──────────────────────────────────
 // Renders a button + dropdown checkbox panel for a multi-select filter.
 function _msHtml(key,labelText,options,opts){
@@ -1068,6 +1122,7 @@ function buildFilterBar(){
         <button class="seg-btn ${!_lsSyncOn?'seg-active':''}" onclick="_lsSyncOn=false;buildFilterBar();renderLoss();" style="border:0;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${!_lsSyncOn?'var(--blue)':'var(--surface)'};color:${!_lsSyncOn?'#fff':'var(--muted)'};">📋 All Loss Data (${fi(totalLSAll)})</button>
         <button class="seg-btn ${_lsSyncOn?'seg-active':''}" onclick="_lsSyncOn=true;buildFilterBar();renderLoss();" style="border:0;border-left:1px solid var(--border);padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${_lsSyncOn?'var(--blue)':'var(--surface)'};color:${_lsSyncOn?'#fff':'var(--muted)'};">🔗 Synced to Walkins (${fi(totalLSSynced)})</button>
       </div>
+      <button class="filter-btn" onclick="selectTop10Stores()" title="Pre-select the 10 flagship stores in the Store filter">🏆 Top 10 Stores</button>
       <button class="filter-btn" onclick="resetFilters()">Reset</button>
     </div>
     <div style="display:flex;align-items:center;gap:16px;padding:8px 14px;background:#e6eefa;border-radius:10px;margin-bottom:1rem;font-size:11px;color:#1a3fa0;flex-wrap:wrap;">
@@ -6563,7 +6618,7 @@ window.downloadWeeklyGridCsv=function(){
   const esc=v=>{const s=String(v==null?'':v);if(s.includes(',')||s.includes('"')||s.includes('\n'))return'"'+s.replace(/"/g,'""')+'"';return s;};
   const lines=[['Outlet Name','Metric',...weeks.map(w=>`Week ${w}`)].map(esc).join(',')];
   stores.sort((a,b)=>a.outlet.localeCompare(b.outlet)).forEach(s=>{
-    const weekMap={bills:{},walkins:{},loss:{},nonEng:{}};
+    const weekMap={bills:{},walkins:{},loss:{},nonEng:{},conv:{}};
     s.days.forEach(d=>{
       if(!dateInRange(d.dk,f))return;
       const w=_weekFromApr1(d.dk,fy);
@@ -6576,11 +6631,13 @@ window.downloadWeeklyGridCsv=function(){
     weeks.forEach(w=>{
       const wk=weekMap.walkins[w]||0,bl=weekMap.bills[w]||0,lo=weekMap.loss[w]||0;
       weekMap.nonEng[w]=Math.max(0,wk-bl-lo);
+      weekMap.conv[w]=wk>0?Math.round(bl/wk*1000)/10:'';
     });
     lines.push([esc(s.outlet),esc('Bills'),...weeks.map(w=>weekMap.bills[w]||0)].join(','));
     lines.push([esc(''),esc('Walkins'),...weeks.map(w=>weekMap.walkins[w]||0)].join(','));
     lines.push([esc(''),esc('Loss of Sale'),...weeks.map(w=>weekMap.loss[w]||0)].join(','));
     lines.push([esc(''),esc('Non Engaged'),...weeks.map(w=>weekMap.nonEng[w]||0)].join(','));
+    lines.push([esc(''),esc('Conversion%'),...weeks.map(w=>weekMap.conv[w]===''?'':weekMap.conv[w])].join(','));
   });
   const csv=lines.join('\r\n');
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
@@ -6632,18 +6689,19 @@ function renderWeeklyGrid(){
     return;
   }
 
-  // Row order = user-controlled metric filter. 'all' shows all four rows per store.
+  // Row order = user-controlled metric filter. 'all' shows all 5 rows per store.
   const metricRows=[
-    {key:'bills',label:'Bills',color:'var(--green)'},
-    {key:'walkins',label:'Walkins',color:'var(--blue)'},
-    {key:'loss',label:'Loss of Sale',color:'var(--red)'},
-    {key:'nonEng',label:'Non Engaged',color:'var(--amber)'}
+    {key:'bills',label:'Bills',color:'var(--green)',fmt:'int'},
+    {key:'walkins',label:'Walkins',color:'var(--blue)',fmt:'int'},
+    {key:'loss',label:'Loss of Sale',color:'var(--red)',fmt:'int'},
+    {key:'nonEng',label:'Non Engaged',color:'var(--amber)',fmt:'int'},
+    {key:'conv',label:'Conversion%',color:'#7e6cb4',fmt:'pct'}
   ];
   const visibleMetrics=_wgridMetricFilter==='all'?metricRows:metricRows.filter(m=>m.key===_wgridMetricFilter);
 
   // Per-store weekly aggregates
   const storeWeekMaps=stores.map(s=>{
-    const wm={bills:{},walkins:{},loss:{},nonEng:{}};
+    const wm={bills:{},walkins:{},loss:{},nonEng:{},conv:{}};
     s.days.forEach(d=>{
       if(!dateInRange(d.dk,f))return;
       const w=_weekFromApr1(d.dk,fy);
@@ -6656,27 +6714,53 @@ function renderWeeklyGrid(){
     weeks.forEach(w=>{
       const wk=wm.walkins[w]||0,bl=wm.bills[w]||0,lo=wm.loss[w]||0;
       wm.nonEng[w]=Math.max(0,wk-bl-lo);
+      wm.conv[w]=wk>0?Math.round(bl/wk*1000)/10:null; // 1 decimal
     });
     return{store:s,wm};
   });
 
-  // Column totals per week (across all visible stores)
+  // Column totals per week (across all visible stores). For conv%, we compute
+  // a weighted average from total bills / total walkins so the footer is meaningful.
   const totals={};
   visibleMetrics.forEach(m=>{totals[m.key]={};weeks.forEach(w=>{totals[m.key][w]=0;});});
+  // Always aggregate raw bills + walkins so conv% weighted avg works even if the
+  // "Bills only" or "Walkins only" toggle is active.
+  const totalBillsW={},totalWalkinsW={};
+  weeks.forEach(w=>{totalBillsW[w]=0;totalWalkinsW[w]=0;});
   storeWeekMaps.forEach(({wm})=>{
-    visibleMetrics.forEach(m=>{weeks.forEach(w=>{totals[m.key][w]+=wm[m.key][w]||0;});});
+    visibleMetrics.forEach(m=>{
+      if(m.key==='conv')return; // computed below from raw totals
+      weeks.forEach(w=>{totals[m.key][w]+=wm[m.key][w]||0;});
+    });
+    weeks.forEach(w=>{
+      totalBillsW[w]+=wm.bills[w]||0;
+      totalWalkinsW[w]+=wm.walkins[w]||0;
+    });
+  });
+  // Weighted-avg conv% per week
+  weeks.forEach(w=>{
+    totals.conv=totals.conv||{};
+    totals.conv[w]=totalWalkinsW[w]>0?Math.round(totalBillsW[w]/totalWalkinsW[w]*1000)/10:null;
   });
 
   // Column headers: sticky first two columns, weeks with range in a smaller font
   const weekHeaderCells=weeks.map(w=>`<th style="min-width:80px;text-align:right;">Week ${w}<br><span style="font-size:9px;font-weight:500;color:var(--muted);">${_weekLabelFromApr1(w,fy)}</span></th>`).join('');
 
-  // Body — 4 rows per store, only the first row of each block shows the outlet name
+  // Cell renderer that respects the metric's format ('int' or 'pct')
+  const _cell=(m,v)=>{
+    if(m.fmt==='pct'){
+      if(v==null)return`<td style="text-align:right;font-variant-numeric:tabular-nums;"><span style="color:var(--muted);">—</span></td>`;
+      const cls=v>=40?'color:var(--green);font-weight:600;':v>=25?'color:var(--amber);font-weight:600;':'color:var(--red);font-weight:600;';
+      return`<td style="text-align:right;font-variant-numeric:tabular-nums;${cls}">${v.toFixed(1)}%</td>`;
+    }
+    if(v===0)return`<td style="text-align:right;font-variant-numeric:tabular-nums;"><span style="color:var(--muted);">0</span></td>`;
+    return`<td style="text-align:right;font-variant-numeric:tabular-nums;">${fi(v)}</td>`;
+  };
+
+  // Body — 5 rows per store, only the first row of each block shows the outlet name
   const bodyRows=storeWeekMaps.map(({store,wm})=>{
     return visibleMetrics.map((m,mi)=>{
-      const cells=weeks.map(w=>{
-        const v=wm[m.key][w]||0;
-        return`<td style="text-align:right;font-variant-numeric:tabular-nums;">${v===0?'<span style="color:var(--muted);">0</span>':fi(v)}</td>`;
-      }).join('');
+      const cells=weeks.map(w=>_cell(m,wm[m.key][w])).join('');
       const outletCell=mi===0
         ? `<td rowspan="${visibleMetrics.length}" style="font-weight:600;vertical-align:top;background:var(--surface);position:sticky;left:0;z-index:1;"><span class="clickable" onclick="showStoreModal('${store.outlet.replace(/'/g,"\\'")}')">${store.outlet}</span><br><span style="font-size:10px;color:var(--muted);font-weight:400;">${store.market||''} · ${store.rm||''}</span></td>`
         : '';
@@ -6688,9 +6772,17 @@ function renderWeeklyGrid(){
     }).join('');
   }).join('');
 
-  // Footer — totals per metric per week
+  // Footer — totals per metric per week (conv% is weighted avg from bills/walkins)
   const footerRows=visibleMetrics.map((m,mi)=>{
-    const cells=weeks.map(w=>`<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">${fi(totals[m.key][w])}</td>`).join('');
+    const cells=weeks.map(w=>{
+      const v=totals[m.key][w];
+      if(m.fmt==='pct'){
+        if(v==null)return`<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700;"><span style="color:var(--muted);">—</span></td>`;
+        const cls=v>=40?'color:var(--green);':v>=25?'color:var(--amber);':'color:var(--red);';
+        return`<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700;${cls}">${v.toFixed(1)}%</td>`;
+      }
+      return`<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700;">${fi(v||0)}</td>`;
+    }).join('');
     const labelCell=mi===0
       ? `<td rowspan="${visibleMetrics.length}" style="font-weight:700;vertical-align:top;background:var(--bg);position:sticky;left:0;">TOTAL (${stores.length} stores)</td>`
       : '';
@@ -6703,7 +6795,15 @@ function renderWeeklyGrid(){
 
   const seg=(k,lbl,c)=>`<button onclick="setWgridMetric('${k}')" style="border:0;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${_wgridMetricFilter===k?c:'var(--surface)'};color:${_wgridMetricFilter===k?'#fff':'var(--muted)'};">${lbl}</button>`;
 
-  const grandTotals={};visibleMetrics.forEach(m=>{grandTotals[m.key]=weeks.reduce((s,w)=>s+totals[m.key][w],0);});
+  // Grand totals — sum for int metrics, weighted-avg conv%
+  const grandTotalBills=weeks.reduce((s,w)=>s+totalBillsW[w],0);
+  const grandTotalWalkins=weeks.reduce((s,w)=>s+totalWalkinsW[w],0);
+  const grandConv=grandTotalWalkins>0?Math.round(grandTotalBills/grandTotalWalkins*1000)/10:null;
+  const grandTotals={};
+  visibleMetrics.forEach(m=>{
+    if(m.key==='conv')grandTotals[m.key]=grandConv;
+    else grandTotals[m.key]=weeks.reduce((s,w)=>s+(totals[m.key][w]||0),0);
+  });
 
   target.innerHTML=`
     <div style="background:linear-gradient(135deg,#f0f5ff 0%,#fff 100%);border:1px solid #d0dffa;border-left:4px solid var(--blue);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
@@ -6712,8 +6812,8 @@ function renderWeeklyGrid(){
     </div>
 
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:1rem;">
-      <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-        ${seg('all','All 4 metrics','var(--blue)')}
+      <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-wrap:wrap;">
+        ${seg('all','All 5 metrics','var(--blue)')}
         <div style="width:1px;background:var(--border);"></div>
         ${seg('bills','Bills only','var(--green)')}
         <div style="width:1px;background:var(--border);"></div>
@@ -6722,6 +6822,8 @@ function renderWeeklyGrid(){
         ${seg('loss','Loss only','var(--red)')}
         <div style="width:1px;background:var(--border);"></div>
         ${seg('nonEng','Non-Engaged only','var(--amber)')}
+        <div style="width:1px;background:var(--border);"></div>
+        ${seg('conv','Conversion% only','#7e6cb4')}
       </div>
       <button class="filter-btn" onclick="downloadWeeklyGridCsv()" style="background:var(--green);color:#fff;border-color:var(--green);font-weight:600;">⬇ Download CSV</button>
       <div style="font-size:11px;color:var(--muted);">
@@ -6730,7 +6832,12 @@ function renderWeeklyGrid(){
     </div>
 
     <div class="metrics" style="margin-bottom:1rem;">
-      ${visibleMetrics.map(m=>`<div class="metric" style="border-left:3px solid ${m.color};"><div class="lbl">${m.label} · total</div><div class="val" style="color:${m.color};">${fi(grandTotals[m.key])}</div></div>`).join('')}
+      ${visibleMetrics.map(m=>{
+        const v=grandTotals[m.key];
+        const disp=m.fmt==='pct'?(v==null?'—':v.toFixed(1)+'%'):fi(v||0);
+        const sub=m.fmt==='pct'?`${fi(grandTotalBills)} bills / ${fi(grandTotalWalkins)} walkins`:'';
+        return`<div class="metric" style="border-left:3px solid ${m.color};"><div class="lbl">${m.label}${m.fmt==='pct'?' · weighted':' · total'}</div><div class="val" style="color:${m.color};">${disp}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;
+      }).join('')}
     </div>
 
     <div style="overflow:auto;border:1px solid var(--border);border-radius:8px;max-height:75vh;">
