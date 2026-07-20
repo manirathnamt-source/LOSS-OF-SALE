@@ -6798,18 +6798,11 @@ window.downloadWeeklyGridCsv=function(){
       weekMap.nonEng[w]=Math.max(0,wk-bl-lo);
       weekMap.conv[w]=wk>0?Math.round(bl/wk*1000)/10:'';
     });
-    // Top-2 reason and category per week — formatted as "Name (N); Name (N)"
-    const fmtTop2=map=>{
-      if(!map||!Object.keys(map).length)return'';
-      return Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,c])=>`${k} (${c})`).join('; ');
-    };
     lines.push([esc(s.outlet),esc('Bills'),...weeks.map(w=>weekMap.bills[w]||0)].join(','));
     lines.push([esc(''),esc('Walkins'),...weeks.map(w=>weekMap.walkins[w]||0)].join(','));
     lines.push([esc(''),esc('Loss of Sale'),...weeks.map(w=>weekMap.loss[w]||0)].join(','));
     lines.push([esc(''),esc('Non Engaged'),...weeks.map(w=>weekMap.nonEng[w]||0)].join(','));
     lines.push([esc(''),esc('Conversion%'),...weeks.map(w=>weekMap.conv[w]===''?'':weekMap.conv[w])].join(','));
-    lines.push([esc(''),esc('Reason (top 2)'),...weeks.map(w=>esc(fmtTop2(reasonByStoreWeek[s.outletNorm+'|'+w])))].join(','));
-    lines.push([esc(''),esc('Category (top 2)'),...weeks.map(w=>esc(fmtTop2(catByStoreWeek[s.outletNorm+'|'+w])))].join(','));
   });
   const csv=lines.join('\r\n');
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
@@ -6871,15 +6864,13 @@ function renderWeeklyGrid(){
     return;
   }
 
-  // Row order = user-controlled metric filter. 'all' shows all 7 rows per store.
+  // Row order = user-controlled metric filter. 'all' shows all 5 rows per store.
   const metricRows=[
     {key:'bills',label:'Bills',color:'var(--green)',fmt:'int'},
     {key:'walkins',label:'Walkins',color:'var(--blue)',fmt:'int'},
     {key:'loss',label:'Loss of Sale',color:'var(--red)',fmt:'int'},
     {key:'nonEng',label:'Non Engaged',color:'var(--amber)',fmt:'int'},
-    {key:'conv',label:'Conversion%',color:'#7e6cb4',fmt:'pct'},
-    {key:'reason',label:'Reason (top 2)',color:'#c74e6e',fmt:'list'},
-    {key:'category',label:'Category (top 2)',color:'#4980c1',fmt:'list'}
+    {key:'conv',label:'Conversion%',color:'#7e6cb4',fmt:'pct'}
   ];
   const visibleMetrics=_wgridMetricFilter==='all'?metricRows:metricRows.filter(m=>m.key===_wgridMetricFilter);
 
@@ -7026,7 +7017,7 @@ function renderWeeklyGrid(){
 
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:1rem;">
       <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-wrap:wrap;">
-        ${seg('all','All 7 metrics','var(--blue)')}
+        ${seg('all','All 5 metrics','var(--blue)')}
         <div style="width:1px;background:var(--border);"></div>
         ${seg('bills','Bills only','var(--green)')}
         <div style="width:1px;background:var(--border);"></div>
@@ -7037,10 +7028,6 @@ function renderWeeklyGrid(){
         ${seg('nonEng','Non-Engaged only','var(--amber)')}
         <div style="width:1px;background:var(--border);"></div>
         ${seg('conv','Conversion% only','#7e6cb4')}
-        <div style="width:1px;background:var(--border);"></div>
-        ${seg('reason','Reason only','#c74e6e')}
-        <div style="width:1px;background:var(--border);"></div>
-        ${seg('category','Category only','#4980c1')}
       </div>
       <button class="filter-btn" onclick="downloadWeeklyGridCsv()" style="background:var(--green);color:#fff;border-color:var(--green);font-weight:600;">⬇ Download CSV</button>
       <div style="font-size:11px;color:var(--muted);">
