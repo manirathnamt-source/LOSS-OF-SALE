@@ -6589,13 +6589,164 @@ function _weekLabelFromApr1(weekNum,fiscalYear){
   return`${start.getDate()} ${M[start.getMonth()]}–${end.getDate()} ${M[end.getMonth()]}`;
 }
 
+// Drill: (store, week, reason) → category list. Each category is clickable
+// and opens the deeper (store, week, reason, category) → product view.
+window.showWgridReasonDrill=function(storeOutlet,weekNum,reason){
+  const fy=_fiscalYearFromData();
+  const f=getFilters();
+  const{storeIdx,reasonIdx,catIdx,subCatIdx,designIdx,empIdx}=_LS_IDX;
+  if(storeIdx<0||reasonIdx<0){openModal(`🔎 ${storeOutlet}`,'Column missing','<p class="muted-note">Store or Reason column not detected.</p>');return;}
+  const rows=filterLS(f).filter(r=>{
+    if(String(r[storeIdx]||'').trim()!==storeOutlet)return false;
+    if(_weekFromApr1(r._dk,fy)!==weekNum)return false;
+    const rv=String(r[reasonIdx]||'').trim()||'(blank)';
+    return rv===reason;
+  });
+  if(!rows.length){openModal(`🔎 ${storeOutlet} · Week ${weekNum} · "${reason}"`,'No data','<p class="muted-note">No matching entries.</p>');return;}
+  const catMap={};
+  rows.forEach(r=>{
+    const cv=catIdx>=0?(String(r[catIdx]||'').trim()||'Unknown'):'Unknown';
+    if(!catMap[cv])catMap[cv]={count:0,products:{},staff:{}};
+    catMap[cv].count++;
+    const subCat=subCatIdx>=0?String(r[subCatIdx]||'').trim():'';
+    const dn=designIdx>=0?String(r[designIdx]||'').trim():'';
+    const productKey=(subCat+(dn&&dn!=='-'?` · #${dn}`:''))||'(no product detail)';
+    catMap[cv].products[productKey]=(catMap[cv].products[productKey]||0)+1;
+    const sf=empIdx>=0?String(r[empIdx]||'').trim():'';
+    if(sf)catMap[cv].staff[sf]=(catMap[cv].staff[sf]||0)+1;
+  });
+  const arr=Object.entries(catMap).sort((a,b)=>b[1].count-a[1].count);
+  const _topMap=(m,n)=>Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,n).map(([k,c])=>`${k} <span style="color:var(--muted);font-size:10px;">(${c})</span>`).join(', ')||'<span style="color:var(--muted);">—</span>';
+  const label=_weekLabelFromApr1(weekNum,fy);
+  const tbl=sortableTbl(
+    ['Category','Count','Distinct products','Top products','Top staff'],
+    arr.map(([k,v])=>({cells:[
+      `<span class="clickable" onclick="showWgridProductDrill('${storeOutlet.replace(/'/g,"\\'")}',${weekNum},'${reason.replace(/'/g,"\\'")}','${k.replace(/'/g,"\\'")}')">${k}</span>`,
+      fi(v.count),
+      fi(Object.keys(v.products).length),
+      _topMap(v.products,3),
+      _topMap(v.staff,2)
+    ]})),
+    ['Total',fi(rows.length),'','','']
+  );
+  openModal(`🔎 ${storeOutlet} · Week ${weekNum} (${label}) · "${reason}"`,`${fi(rows.length)} loss entries · ${arr.length} categories · click any category for the product list`,tbl);
+};
+
+// Drill: (store, week, category) → product list.
+window.showWgridCategoryDrill=function(storeOutlet,weekNum,category){
+  const fy=_fiscalYearFromData();
+  const f=getFilters();
+  const{storeIdx,catIdx,subCatIdx,designIdx,reasonIdx,empIdx,sizeIdx,styleIdx,colorIdx,polishIdx}=_LS_IDX;
+  if(storeIdx<0||catIdx<0){openModal(`📦 ${storeOutlet}`,'Column missing','<p class="muted-note">Store or Category column not detected.</p>');return;}
+  const rows=filterLS(f).filter(r=>{
+    if(String(r[storeIdx]||'').trim()!==storeOutlet)return false;
+    if(_weekFromApr1(r._dk,fy)!==weekNum)return false;
+    const cv=String(r[catIdx]||'').trim()||'Unknown';
+    return cv===category;
+  });
+  if(!rows.length){openModal(`📦 ${storeOutlet} · Week ${weekNum} · ${category}`,'No data','<p class="muted-note">No matching entries.</p>');return;}
+  const map={};
+  rows.forEach(r=>{
+    const subCat=subCatIdx>=0?String(r[subCatIdx]||'').trim():'';
+    const dn=designIdx>=0?String(r[designIdx]||'').trim():'';
+    const key=(subCat+(dn&&dn!=='-'?` · #${dn}`:''))||'(no product detail)';
+    if(!map[key])map[key]={count:0,reasons:{},staff:{},sz:{},stl:{},col:{},pol:{}};
+    const m=map[key];
+    m.count++;
+    const rv=reasonIdx>=0?(String(r[reasonIdx]||'').trim()||'(blank)'):'(blank)';
+    m.reasons[rv]=(m.reasons[rv]||0)+1;
+    const sf=empIdx>=0?String(r[empIdx]||'').trim():'';
+    if(sf)m.staff[sf]=(m.staff[sf]||0)+1;
+    const sz=sizeIdx>=0?String(r[sizeIdx]||'').trim():'';if(sz)m.sz[sz]=(m.sz[sz]||0)+1;
+    const stl=styleIdx>=0?String(r[styleIdx]||'').trim():'';if(stl)m.stl[stl]=(m.stl[stl]||0)+1;
+    const col=colorIdx>=0?String(r[colorIdx]||'').trim():'';if(col)m.col[col]=(m.col[col]||0)+1;
+    const pol=polishIdx>=0?String(r[polishIdx]||'').trim():'';if(pol)m.pol[pol]=(m.pol[pol]||0)+1;
+  });
+  const arr=Object.entries(map).sort((a,b)=>b[1].count-a[1].count);
+  const _topMap=(m,n)=>Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,n).map(([k,c])=>`${k} <span style="color:var(--muted);font-size:10px;">(${c})</span>`).join(', ')||'<span style="color:var(--muted);">—</span>';
+  const label=_weekLabelFromApr1(weekNum,fy);
+  const tbl=sortableTbl(
+    ['Product (sub-cat · design#)','Count','Top reasons','Top staff','Top size','Top style','Top color','Top polish'],
+    arr.map(([k,v])=>({cells:[
+      `<strong>${k}</strong>`,
+      fi(v.count),
+      _topMap(v.reasons,2),
+      _topMap(v.staff,2),
+      _topMap(v.sz,2),
+      _topMap(v.stl,2),
+      _topMap(v.col,2),
+      _topMap(v.pol,2)
+    ]})),
+    ['Total',fi(rows.length),'','','','','','']
+  );
+  openModal(`📦 ${storeOutlet} · Week ${weekNum} (${label}) · ${category}`,`${fi(rows.length)} loss entries · ${arr.length} distinct products`,tbl);
+};
+
+// Deep drill: (store, week, reason, category) → product list with staff + notes.
+window.showWgridProductDrill=function(storeOutlet,weekNum,reason,category){
+  const fy=_fiscalYearFromData();
+  const f=getFilters();
+  const{storeIdx,catIdx,subCatIdx,designIdx,reasonIdx,empIdx,custNotesIdx,notes2Idx,sizeIdx,styleIdx,colorIdx,polishIdx}=_LS_IDX;
+  if(storeIdx<0||reasonIdx<0){openModal('🎯 Product drill','Column missing','<p class="muted-note">Store or Reason column not detected.</p>');return;}
+  const rows=filterLS(f).filter(r=>{
+    if(String(r[storeIdx]||'').trim()!==storeOutlet)return false;
+    if(_weekFromApr1(r._dk,fy)!==weekNum)return false;
+    const rv=String(r[reasonIdx]||'').trim()||'(blank)';
+    if(rv!==reason)return false;
+    const cv=catIdx>=0?(String(r[catIdx]||'').trim()||'Unknown'):'Unknown';
+    return cv===category;
+  });
+  if(!rows.length){openModal(`🎯 ${storeOutlet} · Week ${weekNum} · ${category} · "${reason}"`,'No data','<p class="muted-note">No matching entries.</p>');return;}
+  const map={};
+  rows.forEach(r=>{
+    const subCat=subCatIdx>=0?String(r[subCatIdx]||'').trim():'';
+    const dn=designIdx>=0?String(r[designIdx]||'').trim():'';
+    const key=(subCat+(dn&&dn!=='-'?` · #${dn}`:''))||'(no product detail)';
+    if(!map[key])map[key]={count:0,staff:{},sz:{},stl:{},col:{},pol:{},notes:[]};
+    const m=map[key];
+    m.count++;
+    const sf=empIdx>=0?String(r[empIdx]||'').trim():'';
+    if(sf)m.staff[sf]=(m.staff[sf]||0)+1;
+    const sz=sizeIdx>=0?String(r[sizeIdx]||'').trim():'';if(sz)m.sz[sz]=(m.sz[sz]||0)+1;
+    const stl=styleIdx>=0?String(r[styleIdx]||'').trim():'';if(stl)m.stl[stl]=(m.stl[stl]||0)+1;
+    const col=colorIdx>=0?String(r[colorIdx]||'').trim():'';if(col)m.col[col]=(m.col[col]||0)+1;
+    const pol=polishIdx>=0?String(r[polishIdx]||'').trim():'';if(pol)m.pol[pol]=(m.pol[pol]||0)+1;
+    const noteParts=[];
+    if(custNotesIdx>=0){const v=String(r[custNotesIdx]||'').trim();if(v)noteParts.push(v);}
+    if(notes2Idx>=0){const v=String(r[notes2Idx]||'').trim();if(v)noteParts.push(v);}
+    if(noteParts.length)m.notes.push(noteParts.join(' · '));
+  });
+  const arr=Object.entries(map).sort((a,b)=>b[1].count-a[1].count);
+  const _topMap=(m,n)=>Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,n).map(([k,c])=>`${k} <span style="color:var(--muted);font-size:10px;">(${c})</span>`).join(', ')||'<span style="color:var(--muted);">—</span>';
+  const label=_weekLabelFromApr1(weekNum,fy);
+  const tbl=sortableTbl(
+    ['Product (sub-cat · design#)','Count','Top staff','Top size','Top style','Top color','Top polish','Sample note'],
+    arr.map(([k,v])=>{
+      const sample=v.notes[0]||'';
+      const short=sample.length>120?sample.slice(0,120)+'…':sample;
+      return{cells:[
+        `<strong>${k}</strong>`,
+        fi(v.count),
+        _topMap(v.staff,2),
+        _topMap(v.sz,2),
+        _topMap(v.stl,2),
+        _topMap(v.col,2),
+        _topMap(v.pol,2),
+        short?`<span style="font-size:11px;color:var(--muted);">${short}</span>`:'<span style="color:var(--muted);">—</span>'
+      ]};
+    }),
+    ['Total',fi(rows.length),'','','','','','']
+  );
+  openModal(`🎯 ${storeOutlet} · Week ${weekNum} (${label}) · ${category} · "${reason}"`,`${fi(rows.length)} loss entries · ${arr.length} distinct products`,tbl);
+};
+
 // State
-let _wgridMetricFilter='all'; // 'all' | 'bills' | 'walkins' | 'loss' | 'nonEng'
+let _wgridMetricFilter='all'; // 'all' | 'bills' | 'walkins' | 'loss' | 'nonEng' | 'conv' | 'reason' | 'category'
 window.setWgridMetric=function(m){_wgridMetricFilter=m;renderWeeklyGrid();};
 
 window.downloadWeeklyGridCsv=function(){
   const f=getFilters();
-  const{storeIdx}=_LS_IDX;
+  const{storeIdx,reasonIdx,catIdx}=_LS_IDX;
   const stores=filterStores(_WK.stores,f);
   const filtLS=filterLS(f);
   const fy=_fiscalYearFromData();
@@ -6606,6 +6757,8 @@ window.downloadWeeklyGridCsv=function(){
   if(!maxWeek)maxWeek=1;
   const weeks=[];for(let i=1;i<=maxWeek;i++)weeks.push(i);
   const lossByStoreWeek={};
+  const reasonByStoreWeek={};
+  const catByStoreWeek={};
   filtLS.forEach(r=>{
     const sn=storeIdx>=0?String(r[storeIdx]||'').trim():'';
     if(!sn)return;
@@ -6614,6 +6767,13 @@ window.downloadWeeklyGridCsv=function(){
     const key=normStore(sn);
     if(!lossByStoreWeek[key])lossByStoreWeek[key]={};
     lossByStoreWeek[key][w]=(lossByStoreWeek[key][w]||0)+1;
+    const rk=key+'|'+w;
+    const rsn=reasonIdx>=0?(String(r[reasonIdx]||'').trim()||'(blank)'):'(blank)';
+    if(!reasonByStoreWeek[rk])reasonByStoreWeek[rk]={};
+    reasonByStoreWeek[rk][rsn]=(reasonByStoreWeek[rk][rsn]||0)+1;
+    const ct=catIdx>=0?(String(r[catIdx]||'').trim()||'Unknown'):'Unknown';
+    if(!catByStoreWeek[rk])catByStoreWeek[rk]={};
+    catByStoreWeek[rk][ct]=(catByStoreWeek[rk][ct]||0)+1;
   });
   const esc=v=>{const s=String(v==null?'':v);if(s.includes(',')||s.includes('"')||s.includes('\n'))return'"'+s.replace(/"/g,'""')+'"';return s;};
   // Two-row header: "Week N" on top, then the actual date range beneath so
@@ -6638,11 +6798,18 @@ window.downloadWeeklyGridCsv=function(){
       weekMap.nonEng[w]=Math.max(0,wk-bl-lo);
       weekMap.conv[w]=wk>0?Math.round(bl/wk*1000)/10:'';
     });
+    // Top-2 reason and category per week — formatted as "Name (N); Name (N)"
+    const fmtTop2=map=>{
+      if(!map||!Object.keys(map).length)return'';
+      return Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,c])=>`${k} (${c})`).join('; ');
+    };
     lines.push([esc(s.outlet),esc('Bills'),...weeks.map(w=>weekMap.bills[w]||0)].join(','));
     lines.push([esc(''),esc('Walkins'),...weeks.map(w=>weekMap.walkins[w]||0)].join(','));
     lines.push([esc(''),esc('Loss of Sale'),...weeks.map(w=>weekMap.loss[w]||0)].join(','));
     lines.push([esc(''),esc('Non Engaged'),...weeks.map(w=>weekMap.nonEng[w]||0)].join(','));
     lines.push([esc(''),esc('Conversion%'),...weeks.map(w=>weekMap.conv[w]===''?'':weekMap.conv[w])].join(','));
+    lines.push([esc(''),esc('Reason (top 2)'),...weeks.map(w=>esc(fmtTop2(reasonByStoreWeek[s.outletNorm+'|'+w])))].join(','));
+    lines.push([esc(''),esc('Category (top 2)'),...weeks.map(w=>esc(fmtTop2(catByStoreWeek[s.outletNorm+'|'+w])))].join(','));
   });
   const csv=lines.join('\r\n');
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
@@ -6673,8 +6840,11 @@ function renderWeeklyGrid(){
   if(!maxWeek)maxWeek=1;
   const weeks=[];for(let i=1;i<=maxWeek;i++)weeks.push(i);
 
-  // Loss by (store, week)
+  // Loss by (store, week) + reason and category maps for the top-2 rows
+  const{reasonIdx:_rIdx,catIdx:_cIdx}=_LS_IDX;
   const lossByStoreWeek={};
+  const reasonByStoreWeek={};
+  const catByStoreWeek={};
   filtLS.forEach(r=>{
     const sn=storeIdx>=0?String(r[storeIdx]||'').trim():'';
     if(!sn)return;
@@ -6683,6 +6853,13 @@ function renderWeeklyGrid(){
     const key=normStore(sn);
     if(!lossByStoreWeek[key])lossByStoreWeek[key]={};
     lossByStoreWeek[key][w]=(lossByStoreWeek[key][w]||0)+1;
+    const rk=key+'|'+w;
+    const rsn=_rIdx>=0?(String(r[_rIdx]||'').trim()||'(blank)'):'(blank)';
+    if(!reasonByStoreWeek[rk])reasonByStoreWeek[rk]={};
+    reasonByStoreWeek[rk][rsn]=(reasonByStoreWeek[rk][rsn]||0)+1;
+    const cat=_cIdx>=0?(String(r[_cIdx]||'').trim()||'Unknown'):'Unknown';
+    if(!catByStoreWeek[rk])catByStoreWeek[rk]={};
+    catByStoreWeek[rk][cat]=(catByStoreWeek[rk][cat]||0)+1;
   });
 
   if(!stores.length){
@@ -6694,19 +6871,21 @@ function renderWeeklyGrid(){
     return;
   }
 
-  // Row order = user-controlled metric filter. 'all' shows all 5 rows per store.
+  // Row order = user-controlled metric filter. 'all' shows all 7 rows per store.
   const metricRows=[
     {key:'bills',label:'Bills',color:'var(--green)',fmt:'int'},
     {key:'walkins',label:'Walkins',color:'var(--blue)',fmt:'int'},
     {key:'loss',label:'Loss of Sale',color:'var(--red)',fmt:'int'},
     {key:'nonEng',label:'Non Engaged',color:'var(--amber)',fmt:'int'},
-    {key:'conv',label:'Conversion%',color:'#7e6cb4',fmt:'pct'}
+    {key:'conv',label:'Conversion%',color:'#7e6cb4',fmt:'pct'},
+    {key:'reason',label:'Reason (top 2)',color:'#c74e6e',fmt:'list'},
+    {key:'category',label:'Category (top 2)',color:'#4980c1',fmt:'list'}
   ];
   const visibleMetrics=_wgridMetricFilter==='all'?metricRows:metricRows.filter(m=>m.key===_wgridMetricFilter);
 
   // Per-store weekly aggregates
   const storeWeekMaps=stores.map(s=>{
-    const wm={bills:{},walkins:{},loss:{},nonEng:{},conv:{}};
+    const wm={bills:{},walkins:{},loss:{},nonEng:{},conv:{},reason:{},category:{}};
     s.days.forEach(d=>{
       if(!dateInRange(d.dk,f))return;
       const w=_weekFromApr1(d.dk,fy);
@@ -6719,7 +6898,12 @@ function renderWeeklyGrid(){
     weeks.forEach(w=>{
       const wk=wm.walkins[w]||0,bl=wm.bills[w]||0,lo=wm.loss[w]||0;
       wm.nonEng[w]=Math.max(0,wk-bl-lo);
-      wm.conv[w]=wk>0?Math.round(bl/wk*1000)/10:null; // 1 decimal
+      wm.conv[w]=wk>0?Math.round(bl/wk*1000)/10:null;
+      // Top-2 reason and category for this (store, week)
+      const rMap=reasonByStoreWeek[s.outletNorm+'|'+w]||{};
+      wm.reason[w]=Object.entries(rMap).sort((a,b)=>b[1]-a[1]).slice(0,2);
+      const cMap=catByStoreWeek[s.outletNorm+'|'+w]||{};
+      wm.category[w]=Object.entries(cMap).sort((a,b)=>b[1]-a[1]).slice(0,2);
     });
     return{store:s,wm};
   });
@@ -6751,21 +6935,34 @@ function renderWeeklyGrid(){
   // Column headers: sticky first two columns, weeks with range in a smaller font
   const weekHeaderCells=weeks.map(w=>`<th style="min-width:80px;text-align:right;">Week ${w}<br><span style="font-size:9px;font-weight:500;color:var(--muted);">${_weekLabelFromApr1(w,fy)}</span></th>`).join('');
 
-  // Cell renderer that respects the metric's format ('int' or 'pct')
-  const _cell=(m,v)=>{
+  // Cell renderer that respects the metric's format ('int' / 'pct' / 'list')
+  const _cell=(m,v,storeOutlet,weekNum)=>{
     if(m.fmt==='pct'){
       if(v==null)return`<td style="text-align:right;font-variant-numeric:tabular-nums;"><span style="color:var(--muted);">—</span></td>`;
       const cls=v>=40?'color:var(--green);font-weight:600;':v>=25?'color:var(--amber);font-weight:600;':'color:var(--red);font-weight:600;';
       return`<td style="text-align:right;font-variant-numeric:tabular-nums;${cls}">${v.toFixed(1)}%</td>`;
     }
+    if(m.fmt==='list'){
+      if(!v||!v.length)return`<td style="text-align:left;font-size:11px;"><span style="color:var(--muted);">—</span></td>`;
+      const soEsc=storeOutlet.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+      const trunc=s=>s.length>26?s.slice(0,26)+'…':s;
+      const items=v.map(([name,c])=>{
+        const nEsc=String(name).replace(/'/g,"\\'").replace(/"/g,'&quot;');
+        const handler=m.key==='reason'
+          ?`showWgridReasonDrill('${soEsc}',${weekNum},'${nEsc}')`
+          :`showWgridCategoryDrill('${soEsc}',${weekNum},'${nEsc}')`;
+        return`<span class="clickable" onclick="${handler}" title="${String(name).replace(/"/g,'&quot;')}">${trunc(String(name))}</span> <span style="color:var(--muted);font-size:10px;">(${c})</span>`;
+      }).join('<br>');
+      return`<td style="text-align:left;font-size:11px;line-height:1.4;">${items}</td>`;
+    }
     if(v===0)return`<td style="text-align:right;font-variant-numeric:tabular-nums;"><span style="color:var(--muted);">0</span></td>`;
     return`<td style="text-align:right;font-variant-numeric:tabular-nums;">${fi(v)}</td>`;
   };
 
-  // Body — 5 rows per store, only the first row of each block shows the outlet name
+  // Body — 7 rows per store, only the first row of each block shows the outlet name
   const bodyRows=storeWeekMaps.map(({store,wm})=>{
     return visibleMetrics.map((m,mi)=>{
-      const cells=weeks.map(w=>_cell(m,wm[m.key][w])).join('');
+      const cells=weeks.map(w=>_cell(m,wm[m.key][w],store.outlet,w)).join('');
       const outletCell=mi===0
         ? `<td rowspan="${visibleMetrics.length}" style="font-weight:600;vertical-align:top;background:var(--surface);position:sticky;left:0;z-index:1;"><span class="clickable" onclick="showStoreModal('${store.outlet.replace(/'/g,"\\'")}')">${store.outlet}</span><br><span style="font-size:10px;color:var(--muted);font-weight:400;">${store.market||''} · ${store.rm||''}</span></td>`
         : '';
@@ -6777,8 +6974,19 @@ function renderWeeklyGrid(){
     }).join('');
   }).join('');
 
-  // Footer — totals per metric per week (conv% is weighted avg from bills/walkins)
+  // Footer — totals per metric per week. List metrics (reason/category) skip totals.
   const footerRows=visibleMetrics.map((m,mi)=>{
+    if(m.fmt==='list'){
+      const cells=weeks.map(()=>`<td style="color:var(--muted);font-size:10px;font-style:italic;">n/a</td>`).join('');
+      const labelCell=mi===0
+        ? `<td rowspan="${visibleMetrics.length}" style="font-weight:700;vertical-align:top;background:var(--bg);position:sticky;left:0;">TOTAL (${stores.length} stores)</td>`
+        : '';
+      return`<tr style="background:var(--bg);border-top:${mi===0?'2px solid var(--border)':'1px solid var(--border)'};">
+        ${labelCell}
+        <td style="font-weight:700;color:${m.color};position:sticky;left:${mi===0?'220px':'0'};background:var(--bg);">${m.label}</td>
+        ${cells}
+      </tr>`;
+    }
     const cells=weeks.map(w=>{
       const v=totals[m.key][w];
       if(m.fmt==='pct'){
@@ -6818,7 +7026,7 @@ function renderWeeklyGrid(){
 
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:1rem;">
       <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-wrap:wrap;">
-        ${seg('all','All 5 metrics','var(--blue)')}
+        ${seg('all','All 7 metrics','var(--blue)')}
         <div style="width:1px;background:var(--border);"></div>
         ${seg('bills','Bills only','var(--green)')}
         <div style="width:1px;background:var(--border);"></div>
@@ -6829,6 +7037,10 @@ function renderWeeklyGrid(){
         ${seg('nonEng','Non-Engaged only','var(--amber)')}
         <div style="width:1px;background:var(--border);"></div>
         ${seg('conv','Conversion% only','#7e6cb4')}
+        <div style="width:1px;background:var(--border);"></div>
+        ${seg('reason','Reason only','#c74e6e')}
+        <div style="width:1px;background:var(--border);"></div>
+        ${seg('category','Category only','#4980c1')}
       </div>
       <button class="filter-btn" onclick="downloadWeeklyGridCsv()" style="background:var(--green);color:#fff;border-color:var(--green);font-weight:600;">⬇ Download CSV</button>
       <div style="font-size:11px;color:var(--muted);">
@@ -6837,7 +7049,7 @@ function renderWeeklyGrid(){
     </div>
 
     <div class="metrics" style="margin-bottom:1rem;">
-      ${visibleMetrics.map(m=>{
+      ${visibleMetrics.filter(m=>m.fmt!=='list').map(m=>{
         const v=grandTotals[m.key];
         const disp=m.fmt==='pct'?(v==null?'—':v.toFixed(1)+'%'):fi(v||0);
         const sub=m.fmt==='pct'?`${fi(grandTotalBills)} bills / ${fi(grandTotalWalkins)} walkins`:'';
