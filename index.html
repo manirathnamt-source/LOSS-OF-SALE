@@ -151,6 +151,7 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
     <button class="tab-btn" onclick="show('purp')">🎯 Purpose</button>
     <button class="tab-btn" onclick="show('wkly')">Weekly Comparison</button>
     <button class="tab-btn" onclick="show('sale')">💰 Sale</button>
+    <button class="tab-btn" onclick="show('wgrid')">📊 Weekly Grid</button>
     <button class="tab-btn" onclick="show('rsn')">🔎 Reason Analysis</button>
     <button class="tab-btn" onclick="show('raw')">📄 Raw Data</button>
     <button class="tab-btn" onclick="show('ask')">💬 Ask</button>
@@ -164,6 +165,7 @@ tr.audit-red:hover td{background:#ffe8e8;}tr.audit-amber:hover td{background:#ff
   <div id="purp" class="pane"><div class="loading">Loading...</div></div>
   <div id="wkly" class="pane"><div class="loading">Loading...</div></div>
   <div id="sale" class="pane"><div class="loading">Loading...</div></div>
+  <div id="wgrid" class="pane"><div class="loading">Loading...</div></div>
   <div id="rsn" class="pane"><div class="loading">Loading...</div></div>
   <div id="raw" class="pane"><div class="loading">Loading...</div></div>
   <div id="ask" class="pane"><div class="loading">Loading...</div></div>
@@ -337,7 +339,7 @@ function toDayKey(raw){
 
 // ── TAB SWITCHING ─────────────────────────────────────────
 function show(id){
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','purp','wkly','sale','rsn','raw','ask','ins','audit'][i]===id));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['ov','ls','lsd','cat','purp','wkly','sale','wgrid','rsn','raw','ask','ins','audit'][i]===id));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   // Clear Insights scope when navigating to any other tab so its modals aren't accidentally scoped
@@ -348,6 +350,7 @@ function show(id){
   if(id==='purp')renderPurpose();
   if(id==='wkly')renderWeekly();
   if(id==='sale')renderSale();
+  if(id==='wgrid')renderWeeklyGrid();
   if(id==='rsn')renderReasonAnalysis();
   if(id==='raw')renderRawData();
   if(id==='ask')renderAsk();
@@ -1083,6 +1086,7 @@ function renderAll(){
   if(document.getElementById('purp').classList.contains('active'))renderPurpose();
   if(document.getElementById('wkly').classList.contains('active'))renderWeekly();
   if(document.getElementById('sale').classList.contains('active'))renderSale();
+  if(document.getElementById('wgrid').classList.contains('active'))renderWeeklyGrid();
   if(document.getElementById('rsn').classList.contains('active'))renderReasonAnalysis();
   if(document.getElementById('raw').classList.contains('active'))renderRawData();
   if(document.getElementById('ins').classList.contains('active'))renderInsights();
@@ -6490,6 +6494,259 @@ function _kpiJoined(f){
 // Loose-match helpers — KPI rm/market labels may not exactly match loss-data labels.
 function _normRM(s){return String(s||'').toLowerCase().replace(/\s+/g,'').trim();}
 function _normMarket(s){return String(s||'').toLowerCase().replace(/\s+/g,'').trim();}
+
+// ═══════════════════════════════════════════════════════════════════
+// 📊 WEEKLY GRID TAB — store × week grid in the KPI-sheet format.
+// For each store, four rows: Bills / Walkins / Loss of Sale / Non Engaged.
+// Week 1 = the ISO calendar week starting from April 1 of the fiscal year;
+// Week 2 = Apr 8-14, … so every week has 7 days and the calendar is
+// consistent whether April 1 lands on a Monday or a Saturday.
+// Non Engaged = Walkins − Bills − Loss (uncaptured non-buyers).
+// ═══════════════════════════════════════════════════════════════════
+
+// Fiscal-year start (Apr 1). If earliest data is in April X, fiscal year = X;
+// otherwise walk back — data from Jan-Mar belongs to the previous fiscal year.
+function _fiscalYearFromData(){
+  const allDks=[];
+  if(_WK&&_WK.days)_WK.days.forEach(d=>allDks.push(d.dk));
+  _LS_ROWS.forEach(r=>{if(r._dk)allDks.push(r._dk);});
+  if(!allDks.length)return new Date().getFullYear();
+  const earliest=allDks.reduce((a,b)=>a<b?a:b);
+  const [y,m]=earliest.split('-').map(Number);
+  return m>=4?y:y-1;
+}
+function _weekFromApr1(dk,fiscalYear){
+  if(!dk)return null;
+  const parts=dk.split('-').map(Number);
+  const y=parts[0],m=parts[1],d=parts[2];
+  const start=new Date(fiscalYear,3,1);
+  const target=new Date(y,m-1,d);
+  const days=Math.floor((target-start)/86400000);
+  if(days<0)return null;
+  return Math.floor(days/7)+1;
+}
+function _weekLabelFromApr1(weekNum,fiscalYear){
+  const start=new Date(fiscalYear,3,1);
+  start.setDate(start.getDate()+(weekNum-1)*7);
+  const end=new Date(start);
+  end.setDate(start.getDate()+6);
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return`${start.getDate()} ${M[start.getMonth()]}–${end.getDate()} ${M[end.getMonth()]}`;
+}
+
+// State
+let _wgridMetricFilter='all'; // 'all' | 'bills' | 'walkins' | 'loss' | 'nonEng'
+window.setWgridMetric=function(m){_wgridMetricFilter=m;renderWeeklyGrid();};
+
+window.downloadWeeklyGridCsv=function(){
+  const f=getFilters();
+  const{storeIdx}=_LS_IDX;
+  const stores=filterStores(_WK.stores,f);
+  const filtLS=filterLS(f);
+  const fy=_fiscalYearFromData();
+  // Determine last week from data
+  let maxWeek=0;
+  stores.forEach(s=>s.days.forEach(d=>{if(dateInRange(d.dk,f)){const w=_weekFromApr1(d.dk,fy);if(w&&w>maxWeek)maxWeek=w;}}));
+  filtLS.forEach(r=>{if(r._dk){const w=_weekFromApr1(r._dk,fy);if(w&&w>maxWeek)maxWeek=w;}});
+  if(!maxWeek)maxWeek=1;
+  const weeks=[];for(let i=1;i<=maxWeek;i++)weeks.push(i);
+  const lossByStoreWeek={};
+  filtLS.forEach(r=>{
+    const sn=storeIdx>=0?String(r[storeIdx]||'').trim():'';
+    if(!sn)return;
+    const w=_weekFromApr1(r._dk,fy);
+    if(!w)return;
+    const key=normStore(sn);
+    if(!lossByStoreWeek[key])lossByStoreWeek[key]={};
+    lossByStoreWeek[key][w]=(lossByStoreWeek[key][w]||0)+1;
+  });
+  const esc=v=>{const s=String(v==null?'':v);if(s.includes(',')||s.includes('"')||s.includes('\n'))return'"'+s.replace(/"/g,'""')+'"';return s;};
+  const lines=[['Outlet Name','Metric',...weeks.map(w=>`Week ${w}`)].map(esc).join(',')];
+  stores.sort((a,b)=>a.outlet.localeCompare(b.outlet)).forEach(s=>{
+    const weekMap={bills:{},walkins:{},loss:{},nonEng:{}};
+    s.days.forEach(d=>{
+      if(!dateInRange(d.dk,f))return;
+      const w=_weekFromApr1(d.dk,fy);
+      if(!w)return;
+      weekMap.walkins[w]=(weekMap.walkins[w]||0)+d.w;
+      weekMap.bills[w]=(weekMap.bills[w]||0)+d.b;
+    });
+    const ls=lossByStoreWeek[s.outletNorm]||{};
+    weeks.forEach(w=>{weekMap.loss[w]=ls[w]||0;});
+    weeks.forEach(w=>{
+      const wk=weekMap.walkins[w]||0,bl=weekMap.bills[w]||0,lo=weekMap.loss[w]||0;
+      weekMap.nonEng[w]=Math.max(0,wk-bl-lo);
+    });
+    lines.push([esc(s.outlet),esc('Bills'),...weeks.map(w=>weekMap.bills[w]||0)].join(','));
+    lines.push([esc(''),esc('Walkins'),...weeks.map(w=>weekMap.walkins[w]||0)].join(','));
+    lines.push([esc(''),esc('Loss of Sale'),...weeks.map(w=>weekMap.loss[w]||0)].join(','));
+    lines.push([esc(''),esc('Non Engaged'),...weeks.map(w=>weekMap.nonEng[w]||0)].join(','));
+  });
+  const csv=lines.join('\r\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.href=url;a.download=`weekly-grid-${ts}.csv`;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+
+function renderWeeklyGrid(){
+  const target=document.getElementById('wgrid');
+  if(!_WK||!_WK.stores||!_WK.stores.length){
+    target.innerHTML=`<div class="err-card">Walkin data not loaded yet.</div>`;
+    return;
+  }
+  const f=getFilters();
+  const{storeIdx}=_LS_IDX;
+  const stores=filterStores(_WK.stores,f).slice().sort((a,b)=>a.outlet.localeCompare(b.outlet));
+  const filtLS=filterLS(f);
+  const fy=_fiscalYearFromData();
+
+  // Determine max week from data
+  let maxWeek=0;
+  stores.forEach(s=>s.days.forEach(d=>{if(dateInRange(d.dk,f)){const w=_weekFromApr1(d.dk,fy);if(w&&w>maxWeek)maxWeek=w;}}));
+  filtLS.forEach(r=>{if(r._dk){const w=_weekFromApr1(r._dk,fy);if(w&&w>maxWeek)maxWeek=w;}});
+  if(!maxWeek)maxWeek=1;
+  const weeks=[];for(let i=1;i<=maxWeek;i++)weeks.push(i);
+
+  // Loss by (store, week)
+  const lossByStoreWeek={};
+  filtLS.forEach(r=>{
+    const sn=storeIdx>=0?String(r[storeIdx]||'').trim():'';
+    if(!sn)return;
+    const w=_weekFromApr1(r._dk,fy);
+    if(!w)return;
+    const key=normStore(sn);
+    if(!lossByStoreWeek[key])lossByStoreWeek[key]={};
+    lossByStoreWeek[key][w]=(lossByStoreWeek[key][w]||0)+1;
+  });
+
+  if(!stores.length){
+    target.innerHTML=`
+      <div style="background:linear-gradient(135deg,#f0f5ff 0%,#fff 100%);border:1px solid #d0dffa;border-left:4px solid var(--blue);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
+        <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">📊 Weekly Grid — store × week</div>
+        <div style="font-size:12px;color:var(--muted);">No stores match the current filter selection.</div>
+      </div>`;
+    return;
+  }
+
+  // Row order = user-controlled metric filter. 'all' shows all four rows per store.
+  const metricRows=[
+    {key:'bills',label:'Bills',color:'var(--green)'},
+    {key:'walkins',label:'Walkins',color:'var(--blue)'},
+    {key:'loss',label:'Loss of Sale',color:'var(--red)'},
+    {key:'nonEng',label:'Non Engaged',color:'var(--amber)'}
+  ];
+  const visibleMetrics=_wgridMetricFilter==='all'?metricRows:metricRows.filter(m=>m.key===_wgridMetricFilter);
+
+  // Per-store weekly aggregates
+  const storeWeekMaps=stores.map(s=>{
+    const wm={bills:{},walkins:{},loss:{},nonEng:{}};
+    s.days.forEach(d=>{
+      if(!dateInRange(d.dk,f))return;
+      const w=_weekFromApr1(d.dk,fy);
+      if(!w)return;
+      wm.walkins[w]=(wm.walkins[w]||0)+d.w;
+      wm.bills[w]=(wm.bills[w]||0)+d.b;
+    });
+    const ls=lossByStoreWeek[s.outletNorm]||{};
+    weeks.forEach(w=>{wm.loss[w]=ls[w]||0;});
+    weeks.forEach(w=>{
+      const wk=wm.walkins[w]||0,bl=wm.bills[w]||0,lo=wm.loss[w]||0;
+      wm.nonEng[w]=Math.max(0,wk-bl-lo);
+    });
+    return{store:s,wm};
+  });
+
+  // Column totals per week (across all visible stores)
+  const totals={};
+  visibleMetrics.forEach(m=>{totals[m.key]={};weeks.forEach(w=>{totals[m.key][w]=0;});});
+  storeWeekMaps.forEach(({wm})=>{
+    visibleMetrics.forEach(m=>{weeks.forEach(w=>{totals[m.key][w]+=wm[m.key][w]||0;});});
+  });
+
+  // Column headers: sticky first two columns, weeks with range in a smaller font
+  const weekHeaderCells=weeks.map(w=>`<th style="min-width:80px;text-align:right;">Week ${w}<br><span style="font-size:9px;font-weight:500;color:var(--muted);">${_weekLabelFromApr1(w,fy)}</span></th>`).join('');
+
+  // Body — 4 rows per store, only the first row of each block shows the outlet name
+  const bodyRows=storeWeekMaps.map(({store,wm})=>{
+    return visibleMetrics.map((m,mi)=>{
+      const cells=weeks.map(w=>{
+        const v=wm[m.key][w]||0;
+        return`<td style="text-align:right;font-variant-numeric:tabular-nums;">${v===0?'<span style="color:var(--muted);">0</span>':fi(v)}</td>`;
+      }).join('');
+      const outletCell=mi===0
+        ? `<td rowspan="${visibleMetrics.length}" style="font-weight:600;vertical-align:top;background:var(--surface);position:sticky;left:0;z-index:1;"><span class="clickable" onclick="showStoreModal('${store.outlet.replace(/'/g,"\\'")}')">${store.outlet}</span><br><span style="font-size:10px;color:var(--muted);font-weight:400;">${store.market||''} · ${store.rm||''}</span></td>`
+        : '';
+      return`<tr style="border-top:${mi===0?'2px solid var(--border)':'1px solid var(--border)'};">
+        ${outletCell}
+        <td style="font-weight:600;color:${m.color};position:sticky;left:${mi===0?'220px':'0'};background:var(--bg);z-index:1;">${m.label}</td>
+        ${cells}
+      </tr>`;
+    }).join('');
+  }).join('');
+
+  // Footer — totals per metric per week
+  const footerRows=visibleMetrics.map((m,mi)=>{
+    const cells=weeks.map(w=>`<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">${fi(totals[m.key][w])}</td>`).join('');
+    const labelCell=mi===0
+      ? `<td rowspan="${visibleMetrics.length}" style="font-weight:700;vertical-align:top;background:var(--bg);position:sticky;left:0;">TOTAL (${stores.length} stores)</td>`
+      : '';
+    return`<tr style="background:var(--bg);border-top:${mi===0?'2px solid var(--border)':'1px solid var(--border)'};">
+      ${labelCell}
+      <td style="font-weight:700;color:${m.color};position:sticky;left:${mi===0?'220px':'0'};background:var(--bg);">${m.label}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  const seg=(k,lbl,c)=>`<button onclick="setWgridMetric('${k}')" style="border:0;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${_wgridMetricFilter===k?c:'var(--surface)'};color:${_wgridMetricFilter===k?'#fff':'var(--muted)'};">${lbl}</button>`;
+
+  const grandTotals={};visibleMetrics.forEach(m=>{grandTotals[m.key]=weeks.reduce((s,w)=>s+totals[m.key][w],0);});
+
+  target.innerHTML=`
+    <div style="background:linear-gradient(135deg,#f0f5ff 0%,#fff 100%);border:1px solid #d0dffa;border-left:4px solid var(--blue);border-radius:10px;padding:14px 18px;margin-bottom:1rem;">
+      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">📊 Weekly Grid — Store × Week (FY starting April ${fy})</div>
+      <div style="font-size:12px;color:var(--muted);">Each store has 4 rows: <strong>Bills</strong> / <strong>Walkins</strong> / <strong>Loss of Sale</strong> / <strong>Non Engaged</strong>. Weeks are 7-day buckets counting from <strong>1 April ${fy}</strong> (Week 1 = 1–7 Apr, Week 2 = 8–14 Apr, …). Non Engaged = Walkins − Bills − Loss captured. Filters and store click behaviour work here like the other tabs.</div>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:1rem;">
+      <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+        ${seg('all','All 4 metrics','var(--blue)')}
+        <div style="width:1px;background:var(--border);"></div>
+        ${seg('bills','Bills only','var(--green)')}
+        <div style="width:1px;background:var(--border);"></div>
+        ${seg('walkins','Walkins only','var(--blue)')}
+        <div style="width:1px;background:var(--border);"></div>
+        ${seg('loss','Loss only','var(--red)')}
+        <div style="width:1px;background:var(--border);"></div>
+        ${seg('nonEng','Non-Engaged only','var(--amber)')}
+      </div>
+      <button class="filter-btn" onclick="downloadWeeklyGridCsv()" style="background:var(--green);color:#fff;border-color:var(--green);font-weight:600;">⬇ Download CSV</button>
+      <div style="font-size:11px;color:var(--muted);">
+        <strong style="color:var(--text);">${stores.length}</strong> stores · <strong style="color:var(--text);">${weeks.length}</strong> weeks (Week 1 → Week ${maxWeek})
+      </div>
+    </div>
+
+    <div class="metrics" style="margin-bottom:1rem;">
+      ${visibleMetrics.map(m=>`<div class="metric" style="border-left:3px solid ${m.color};"><div class="lbl">${m.label} · total</div><div class="val" style="color:${m.color};">${fi(grandTotals[m.key])}</div></div>`).join('')}
+    </div>
+
+    <div style="overflow:auto;border:1px solid var(--border);border-radius:8px;max-height:75vh;">
+      <table style="border-collapse:collapse;min-width:100%;width:max-content;">
+        <thead>
+          <tr style="background:var(--surface);">
+            <th style="position:sticky;top:0;left:0;z-index:3;background:var(--surface);border-bottom:2px solid var(--border);border-right:1px solid var(--border);padding:8px 10px;min-width:220px;text-align:left;">Outlet Name</th>
+            <th style="position:sticky;top:0;left:220px;z-index:3;background:var(--surface);border-bottom:2px solid var(--border);border-right:1px solid var(--border);padding:8px 10px;min-width:110px;text-align:left;">Metric</th>
+            ${weeks.map(w=>`<th style="position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:2px solid var(--border);padding:8px 10px;min-width:80px;text-align:right;">Week ${w}<br><span style="font-size:9px;font-weight:500;color:var(--muted);">${_weekLabelFromApr1(w,fy)}</span></th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot>${footerRows}</tfoot>
+      </table>
+    </div>`;
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // 🔎 REASON ANALYSIS TAB — pick a reason (e.g. "Perceived poor value
