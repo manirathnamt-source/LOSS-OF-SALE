@@ -6802,7 +6802,7 @@ window.downloadWeeklyGridCsv=function(){
     lines.push([esc(''),esc('Walkins'),...weeks.map(w=>weekMap.walkins[w]||0)].join(','));
     lines.push([esc(''),esc('Loss of Sale'),...weeks.map(w=>weekMap.loss[w]||0)].join(','));
     lines.push([esc(''),esc('Non Engaged'),...weeks.map(w=>weekMap.nonEng[w]||0)].join(','));
-    lines.push([esc(''),esc('Conversion%'),...weeks.map(w=>weekMap.conv[w]===''?'':weekMap.conv[w])].join(','));
+    lines.push([esc(''),esc('Conversion%'),...weeks.map(w=>weekMap.conv[w]===''?'':`${weekMap.conv[w]}%`)].join(','));
   });
   const csv=lines.join('\r\n');
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
