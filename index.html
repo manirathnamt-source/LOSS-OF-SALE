@@ -3718,6 +3718,69 @@ function renderLossDetail(){
 }
 
 // ── CATEGORY ANALYSIS TAB ────────────────────────────────
+// CSV export: sub-category × month loss counts (respects global filter).
+// Each row = one sub-category, columns = one month per active month in the
+// filtered data, plus Total / Top category / Top reason / distinct-store count.
+window.downloadCatCsv=function(){
+  const f=getFilters();
+  const{subCatIdx,catIdx,reasonIdx,storeIdx}=_LS_IDX;
+  if(subCatIdx<0){alert('Sub-category column not detected in the loss sheet.');return;}
+  const rows=filterLS(f);
+  if(!rows.length){alert('No loss rows in the current filter selection.');return;}
+  // Distinct year-month keys sorted chronologically
+  const monthSet=new Set();
+  rows.forEach(r=>{if(r._dk){monthSet.add(r._dk.slice(0,7));}});
+  const months=[...monthSet].sort();
+  const MONTH_NAMES=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monthLabels=months.map(ym=>{
+    const p=ym.split('-');
+    return`${MONTH_NAMES[parseInt(p[1],10)]||''} ${p[0]}`;
+  });
+  // Sub-category aggregation
+  const subCatMap={};
+  rows.forEach(r=>{
+    const sc=String(r[subCatIdx]||'').trim();
+    if(!sc||sc==='-'||sc.toLowerCase()==='unknown')return;
+    if(!r._dk)return;
+    const ym=r._dk.slice(0,7);
+    if(!subCatMap[sc])subCatMap[sc]={month:{},total:0,cat:{},reason:{},stores:new Set()};
+    const b=subCatMap[sc];
+    b.month[ym]=(b.month[ym]||0)+1;
+    b.total++;
+    const cat=catIdx>=0?(String(r[catIdx]||'').trim()||'Unknown'):'Unknown';
+    b.cat[cat]=(b.cat[cat]||0)+1;
+    const rsn=reasonIdx>=0?(String(r[reasonIdx]||'').trim()||'Unknown'):'Unknown';
+    b.reason[rsn]=(b.reason[rsn]||0)+1;
+    if(storeIdx>=0){const sn=String(r[storeIdx]||'').trim();if(sn)b.stores.add(sn);}
+  });
+  const arr=Object.entries(subCatMap).sort((a,b)=>b[1].total-a[1].total);
+  const esc=v=>{const s=String(v==null?'':v);if(s.includes(',')||s.includes('"')||s.includes('\n'))return'"'+s.replace(/"/g,'""')+'"';return s;};
+  const topOf=m=>{const t=Object.entries(m).sort((a,b)=>b[1]-a[1])[0];return t?`${t[0]} (${t[1]})`:'';};
+  const lines=[['Sub-category',...monthLabels,'Total','Top category','Top reason','Stores affected'].map(esc).join(',')];
+  // Column totals row for context
+  const colTotals=months.map(ym=>arr.reduce((s,[,v])=>s+(v.month[ym]||0),0));
+  const grandTotal=arr.reduce((s,[,v])=>s+v.total,0);
+  arr.forEach(([sc,v])=>{
+    lines.push([
+      esc(sc),
+      ...months.map(ym=>v.month[ym]||0),
+      v.total,
+      esc(topOf(v.cat)),
+      esc(topOf(v.reason)),
+      v.stores.size
+    ].join(','));
+  });
+  lines.push(['TOTAL',...colTotals,grandTotal,'','',''].map(esc).join(','));
+  const csv=lines.join('\r\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.href=url;a.download=`subcategory-monthly-${ts}.csv`;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+
 function renderCatAnalysis(){
   const f=getFilters();
   const rows=filterLS(f);
@@ -3795,9 +3858,12 @@ function renderCatAnalysis(){
   window._catCtx={rows,total,catGrp,reasonGrp,mktArr,subCatGrp,sizeGrp,styleGrp};
 
   document.getElementById('cat').innerHTML=`
-    <div style="background:linear-gradient(135deg,#fff8e6 0%,#fff 100%);border:1px solid #f0d68a;border-left:4px solid var(--amber);border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
-      <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">🏷️ Category Analysis</div>
-      <div style="font-size:12px;color:var(--muted);">Click any reason or category below to drill: <strong>Reason → Stores → Category → Other Reasons & Staff</strong></div>
+    <div style="background:linear-gradient(135deg,#fff8e6 0%,#fff 100%);border:1px solid #f0d68a;border-left:4px solid var(--amber);border-radius:10px;padding:14px 18px;margin-bottom:1rem;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:280px;">
+        <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">🏷️ Category Analysis</div>
+        <div style="font-size:12px;color:var(--muted);">Click any reason or category below to drill: <strong>Reason → Stores → Category → Other Reasons & Staff</strong></div>
+      </div>
+      <button class="filter-btn" onclick="downloadCatCsv()" title="Sub-category × month loss counts + top category / reason / store count" style="background:var(--green);color:#fff;border-color:var(--green);font-weight:600;">⬇ Export sub-category × month CSV</button>
     </div>
 
     <div class="metrics" style="cursor:pointer;">
