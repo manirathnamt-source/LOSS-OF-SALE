@@ -6616,7 +6616,12 @@ window.downloadWeeklyGridCsv=function(){
     lossByStoreWeek[key][w]=(lossByStoreWeek[key][w]||0)+1;
   });
   const esc=v=>{const s=String(v==null?'':v);if(s.includes(',')||s.includes('"')||s.includes('\n'))return'"'+s.replace(/"/g,'""')+'"';return s;};
-  const lines=[['Outlet Name','Metric',...weeks.map(w=>`Week ${w}`)].map(esc).join(',')];
+  // Two-row header: "Week N" on top, then the actual date range beneath so
+  // the exported file carries the month + day boundaries, not just the index.
+  const lines=[
+    ['Outlet Name','Metric',...weeks.map(w=>`Week ${w}`)].map(esc).join(','),
+    ['','Date range',...weeks.map(w=>_weekLabelFromApr1(w,fy))].map(esc).join(',')
+  ];
   stores.sort((a,b)=>a.outlet.localeCompare(b.outlet)).forEach(s=>{
     const weekMap={bills:{},walkins:{},loss:{},nonEng:{},conv:{}};
     s.days.forEach(d=>{
