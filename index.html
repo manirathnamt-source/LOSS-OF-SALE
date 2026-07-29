@@ -594,10 +594,10 @@ function resetFilters(){
   renderAll();
 }
 
-// One-click preset: select the 10 flagship stores in the Store filter.
+// One-click preset: select the 20 flagship stores in the Store filter.
 // Matches against actual walkin-sheet outlet names using exact / normalised /
 // store-code lookups so minor spelling or paren-suffix differences still resolve.
-const TOP10_STORES=[
+const TOP20_STORES=[
   'BLR - JAYNAGAR (BLRJAY)',
   'BLR - HSR LAYOUT (BLRHSR)',
   'BLR - COMMERCIAL STREET (BLRCST)',
@@ -607,13 +607,23 @@ const TOP10_STORES=[
   'BLR - PHOENIX MALL WHITEFIELD (BLRWPX)',
   'MYS - DEVRAJ URS ROAD (MYSDUR)',
   'CBT - RS PURAM (CBTRSP)',
-  'BLR - INDIRANAGAR (BLRIND)'
+  'BLR - INDIRANAGAR (BLRIND)',
+  'CHN - PHOENIX MALL VELACHERY (CHNPNX)',
+  'VIG - SIRIPURAM (VIGSRP)',
+  'BLR - MALL OF ASIA (BLRMOA)',
+  'BLR - SAHAKARNAGAR (BLRSKR)',
+  'BLR - KAMMANAHALLI (BLRKHL)',
+  'CHN - ADYAR (CHNADR)',
+  'HYD - NEXUS MALL (HYDNEX)',
+  'BLR - MANTRI MALL (BLRMNT)',
+  'BLR - ORION MALL (BLRORN)',
+  'TRP - AIR ROAD (TRPARD)'
 ];
-window.selectTop10Stores=function(){
+window.selectTop20Stores=function(){
   if(!_WK||!_WK.stores)return;
   const resolved=[];
   const missing=[];
-  TOP10_STORES.forEach(want=>{
+  TOP20_STORES.forEach(want=>{
     // Try exact match on outlet name first
     let hit=_WK.stores.find(s=>s.outlet===want);
     if(!hit){
@@ -636,7 +646,7 @@ window.selectTop10Stores=function(){
     else missing.push(want);
   });
   if(!resolved.length){
-    console.warn('[selectTop10Stores] none of the flagship stores matched — walkin sheet names may differ. Wanted:',TOP10_STORES);
+    console.warn('[selectTop20Stores] none of the flagship stores matched — walkin sheet names may differ. Wanted:',TOP20_STORES);
     return;
   }
   _F.store=resolved;
@@ -644,7 +654,7 @@ window.selectTop10Stores=function(){
   buildFilterBar();
   renderAll();
   if(missing.length){
-    console.warn('[selectTop10Stores] resolved',resolved.length,'/',TOP10_STORES.length,'· missing:',missing);
+    console.warn('[selectTop20Stores] resolved',resolved.length,'/',TOP20_STORES.length,'· missing:',missing);
   }
 };
 
@@ -1122,7 +1132,7 @@ function buildFilterBar(){
         <button class="seg-btn ${!_lsSyncOn?'seg-active':''}" onclick="_lsSyncOn=false;buildFilterBar();renderLoss();" style="border:0;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${!_lsSyncOn?'var(--blue)':'var(--surface)'};color:${!_lsSyncOn?'#fff':'var(--muted)'};">📋 All Loss Data (${fi(totalLSAll)})</button>
         <button class="seg-btn ${_lsSyncOn?'seg-active':''}" onclick="_lsSyncOn=true;buildFilterBar();renderLoss();" style="border:0;border-left:1px solid var(--border);padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;background:${_lsSyncOn?'var(--blue)':'var(--surface)'};color:${_lsSyncOn?'#fff':'var(--muted)'};">🔗 Synced to Walkins (${fi(totalLSSynced)})</button>
       </div>
-      <button class="filter-btn" onclick="selectTop10Stores()" title="Pre-select the 10 flagship stores in the Store filter">🏆 Top 10 Stores</button>
+      <button class="filter-btn" onclick="selectTop20Stores()" title="Pre-select the 20 flagship stores in the Store filter">🏆 Top 20 Stores</button>
       <button class="filter-btn" onclick="resetFilters()">Reset</button>
     </div>
     <div style="display:flex;align-items:center;gap:16px;padding:8px 14px;background:#e6eefa;border-radius:10px;margin-bottom:1rem;font-size:11px;color:#1a3fa0;flex-wrap:wrap;">
