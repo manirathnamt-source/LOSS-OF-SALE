@@ -253,10 +253,13 @@ async function discoverMonths(){
     if(isWalkin)found[m.key].wkTab=name;
     else if(isLoss)found[m.key].lsTab=name;
   });
-  // Keep only months that have BOTH walkin + loss tabs
+  // A month needs a Loss tab to be worth showing. The Walkins tab is optional — when it is
+  // missing (e.g. "Loss of sale data Aug" landed before "Walkins Aug"), the month still loads
+  // and the store roster is carried forward from the latest month that has one; only the
+  // walkin-derived numbers (conversion, loss coverage) show as pending.
   const valid={};
   Object.entries(found).forEach(([k,v])=>{
-    if(v.wkTab&&v.lsTab)valid[k]={num:v.num,year:v.year,wkTab:v.wkTab,lsTab:v.lsTab,label:v.label};
+    if(v.lsTab)valid[k]={num:v.num,year:v.year,wkTab:v.wkTab,lsTab:v.lsTab,label:v.label};
   });
   // Sort by year+month chronologically
   const sortedKeys=Object.keys(valid).sort((a,b)=>{
@@ -266,11 +269,11 @@ async function discoverMonths(){
   MONTHS={};
   sortedKeys.forEach(k=>{MONTHS[k]=valid[k];});
   _activeMonths=sortedKeys;
-  console.log('[discoverMonths] discovered:',Object.keys(MONTHS).map(k=>`${k} (${MONTHS[k].wkTab} + ${MONTHS[k].lsTab})`));
+  console.log('[discoverMonths] discovered:',Object.keys(MONTHS).map(k=>`${k} (${MONTHS[k].wkTab||'no walkins tab'} + ${MONTHS[k].lsTab})`));
   // Surface unpaired tabs as a warning
   const unpaired=Object.entries(found).filter(([,v])=>!v.wkTab||!v.lsTab);
   if(unpaired.length){
-    console.warn('[discoverMonths] unpaired tabs (need both Walkins + Loss for the same month):',unpaired.map(([k,v])=>`${k}: walkin=${v.wkTab||'MISSING'} loss=${v.lsTab||'MISSING'}`));
+    console.warn('[discoverMonths] unpaired tabs (loss-only months load with pending walkins; walkin-only months are ignored):',unpaired.map(([k,v])=>`${k}: walkin=${v.wkTab||'MISSING'} loss=${v.lsTab||'MISSING'}`));
   }
   return{discovered:Object.keys(MONTHS).length,unpaired};
 }
@@ -552,6 +555,34 @@ function getCustCounts(rows){
   return{new:nw,repeat:rp,other:ot};
 }
 
+// ── BILL TYPE (Billed / Non Billed) ───────────────────────
+// Added to the loss sheet from Aug 2026. "Billed" = the customer did buy something but
+// still logged a loss (part of the basket was lost); "Non Billed" = walked out with nothing.
+// Months before Aug have no such column — those rows return '' and are reported as "not captured".
+function billStatus(v){
+  const s=String(v==null?'':v).toLowerCase().trim();
+  if(!s)return '';
+  if(s.startsWith('non')||s==='nb'||s==='no bill'||s==='not billed'||s==='unbilled')return 'Non Billed';
+  if(s.startsWith('bill')||s==='b'||s==='yes')return 'Billed';
+  return '';
+}
+// Splits any set of loss rows into billed / non-billed / uncaptured counts.
+function getBillCounts(rows){
+  let billed=0,nonBilled=0,unknown=0;
+  (rows||[]).forEach(r=>{
+    const b=r._bill;
+    if(b==='Billed')billed++;
+    else if(b==='Non Billed')nonBilled++;
+    else unknown++;
+  });
+  return{billed,nonBilled,unknown,captured:billed+nonBilled,total:(rows||[]).length};
+}
+// True when the current selection actually has Bill Type data to show.
+function hasBillData(rows){
+  if(_LS_IDX.billIdx<0)return false;
+  return (rows||[]).some(r=>r._bill);
+}
+
 // ── GLOBAL STATE ──────────────────────────────────────────
 let _WK=null,_LS_ROWS=[],_LS_HEADERS=[],_LS_IDX={},_LS_DAY_MAP={},_STORE_RM={},_WK_STORE_BY_KEY={};
 let _lsSyncOn=false; // toggle: false = Loss tab shows ALL data
@@ -559,7 +590,7 @@ let _lsSyncOn=false; // toggle: false = Loss tab shows ALL data
 // ── FILTER STATE — stored in object, not just DOM ─────────
 // Multi-select filters use arrays; empty array = "all" (no filter applied).
 // dateFrom / dateTo stay as strings (single-value pickers).
-let _F={dateFrom:'',dateTo:'',cluster:[],rm:[],market:[],store:[],reason:[],custType:[],purpose:[],month:[]};
+let _F={dateFrom:'',dateTo:'',cluster:[],rm:[],market:[],store:[],reason:[],custType:[],purpose:[],billType:[],month:[]};
 
 function getFilters(){return{..._F};}
 
@@ -587,7 +618,7 @@ function setFilter(key,val){
   renderAll();
 }
 function resetFilters(){
-  _F={dateFrom:'',dateTo:'',cluster:[],rm:[],market:[],store:[],reason:[],custType:[],purpose:[],month:[]};
+  _F={dateFrom:'',dateTo:'',cluster:[],rm:[],market:[],store:[],reason:[],custType:[],purpose:[],billType:[],month:[]};
   document.querySelectorAll('.ms-panel').forEach(p=>p.style.display='none');
   applyMonthFilter();
   buildFilterBar();
@@ -777,8 +808,9 @@ function parseWalkins(headers,rows){
   }
   console.log('[parseWalkins] cols=',cols,'twIdx=',twIdx,'tbIdx=',tbIdx,'dayGroups=',groups.length,'rows=',rows.length);
   if(cols.outlet<0){
-    console.error('[parseWalkins] ABORT — could not find Outlet Name column. Headers:',headers);
-    return{stores:[],days:[],rms:[],clusters:[],markets:[],dks:[],_err:'No Outlet Name column found'};
+    // No headers at all = this month simply has no Walkins tab yet; that is expected, not an error.
+    if((headers||[]).length)console.error('[parseWalkins] ABORT — could not find Outlet Name column. Headers:',headers);
+    return{stores:[],days:[],rms:[],clusters:[],markets:[],dks:[],_err:(headers||[]).length?'No Outlet Name column found':'No walkins tab'};
   }
   // ── PARSE ROWS ─────────────────────────────────────────
   let _diagLogged=0;
@@ -828,6 +860,98 @@ function parseWalkins(headers,rows){
     storeKeys(s.outlet).forEach(k=>{if(!_WK_STORE_BY_KEY[k])_WK_STORE_BY_KEY[k]=s;});
   });
   return{stores,days,rms,clusters,markets,dks};
+}
+
+// ── LOSS-OF-SALE COLUMN NORMALISATION ─────────────────────
+// Every month tab is free to rename / reorder / add columns (Aug 2026 renamed 8 of them,
+// dropped "Customer Type" and added "Bill Type" + "Follow Up"; July dropped "Customer Type"
+// mid-month from 12-Jul). mergeMonths() concatenates raw rows from every month but can only
+// carry ONE header set — so raw rows from different layouts would be read with the wrong
+// indices. Fix: rewrite every month's rows into ONE canonical layout at load time.
+// Canonical indices 0–19 are deliberately identical to the original Apr–Jul layout so all
+// existing index-based logic keeps working; new fields are appended at 20+.
+const LS_CANON=[
+  'Customer Type','Customer Name','Phone Number','Date','Outlet Name','Region','Timing',
+  'Employee','Reason Of Loss Of Sale','Reason','Category','Customer Notes',
+  'Product Sub Category','Size','Style','Color','Polish','Design Number','Notes','Purpose',
+  'Bill Type','Follow Up'
+];
+// [canonicalIndex, source-header aliases]. Order matters: the more specific column must be
+// resolved first so it claims its source index before a looser alias can steal it
+// (Customer Notes before Notes, Product Sub Category before Category, etc).
+const LS_MAP_SPEC=[
+  [3, ['date']],
+  [4, ['outlet name','store name','store','outlet','branch']],
+  [5, ['region','state']],
+  [6, ['timing','time slot','time']],
+  [7, ['employee','staff','salesperson','executive']],
+  [1, ['customer name']],
+  [2, ['mobile number','phone number','mobile','phone','contact']],
+  [8, ['reason of loss of sale','reason for lost sale','reason for loss of sale','loss reason']],
+  [9, ['sub reason','sub-reason','reason']],
+  [11,['customer notes','cust notes']],
+  [12,['product sub category','sub category','sub-category','subcategory']],
+  [10,['category']],
+  [18,['associate notes','staff notes','notes','remarks']],
+  [13,['size']],
+  [14,['style']],
+  [15,['colour','color']],
+  [16,['polish']],
+  [17,['design number','design no','design']],
+  [19,['purpose','occasion','intent']],
+  // Aug renamed Customer Type → Source, same New/Repeted values, so it feeds the same analytics.
+  [0, ['customer type','cust type','visitor type','source']],
+  [20,['bill type','billing status','billed']],
+  [21,['follow up','followup','follow-up']],
+];
+// Store cells always look like "BLR - JAYNAGAR". Used to spot rows that sit one column
+// off from their own header row.
+const _storeish=v=>/^[A-Za-z]{2,4}\s*-\s*\S/.test(String(v==null?'':v).trim());
+
+// Resolve canonical index → source index for one tab's header row.
+function buildLossColMap(headers){
+  const lh=(headers||[]).map(h=>String(h||'').toLowerCase().trim());
+  const used=new Set();
+  const map=new Array(LS_CANON.length).fill(-1);
+  LS_MAP_SPEC.forEach(([canon,alts])=>{
+    let hit=-1;
+    for(const a of alts){                      // exact header match first
+      const i=lh.indexOf(a);
+      if(i>=0&&!used.has(i)){hit=i;break;}
+    }
+    if(hit<0)for(const a of alts){             // then substring
+      const i=lh.findIndex((h,ix)=>!used.has(ix)&&h.includes(a));
+      if(i>=0){hit=i;break;}
+    }
+    if(hit>=0){map[canon]=hit;used.add(hit);}
+  });
+  return map;
+}
+
+// Rewrite one tab's rows into the canonical layout.
+// Also repairs rows that are shifted one column left of their own header row — that is what
+// happened in "Loss of sale data July" from 12-Jul, when Customer Type stopped being written.
+function canonicalizeLossRows(headers,rows,tabName){
+  const map=buildLossColMap(headers);
+  const storeSrc=map[4];
+  let shifted=0;
+  const out=(rows||[]).map(r=>{
+    let off=0;
+    if(storeSrc>0&&!_storeish(r[storeSrc])&&_storeish(r[storeSrc-1])){off=-1;shifted++;}
+    const o=new Array(LS_CANON.length).fill('');
+    for(let c=0;c<map.length;c++){
+      const s=map[c];
+      if(s<0)continue;
+      const si=s+off;
+      if(si<0||si>=r.length)continue;
+      o[c]=r[si];
+    }
+    return o;
+  });
+  const missing=LS_CANON.filter((h,i)=>map[i]<0);
+  console.log(`[canonicalizeLoss] "${tabName}" → ${out.length} rows · unmapped: ${missing.length?missing.join(', '):'none'}`);
+  if(shifted)console.warn(`[canonicalizeLoss] "${tabName}" — repaired ${shifted} row(s) shifted one column left of the header`);
+  return{rows:out,shifted,missing};
 }
 
 // ── PARSE LOSS OF SALE ────────────────────────────────────
@@ -882,6 +1006,8 @@ function parseLoss(headers,rows){
     qtyIdx:    findCol('qty','quantity','nos','pcs'),
     valIdx:    findCol('value','amount','loss value','price'),
     purposeIdx: findCol('purpose','occasion','intent','reason for visit'), // col T — purpose of visit
+    billIdx:   findCol('bill type','billing status','billed'),   // Aug 2026+ — Billed / Non Billed
+    followIdx: findCol('follow up','followup','follow-up'),      // Aug 2026+ — Yes / No
   };
   // ── FALLBACK: if Purpose column wasn't found via header, scan rows for Purpose-like values.
   // Handles the case where one month's tab has the column but its header didn't survive the merge.
@@ -921,7 +1047,7 @@ function parseLoss(headers,rows){
     const storeNorm=normStore(rawStore);
     const rm=wkStore?wkStore.rm:(_STORE_RM[storeNorm]||'Unknown');
     const productParts=[_LS_IDX.subCatIdx,_LS_IDX.sizeIdx,_LS_IDX.styleIdx,_LS_IDX.colorIdx,_LS_IDX.polishIdx,_LS_IDX.designIdx,_LS_IDX.notesIdx].filter(i=>i>=0).map(i=>String(r[i]||'').trim()).filter(Boolean);
-    return{...r,_dk:dk,_syncedDk:syncedDk,_rm:rm,_mob:mobStatus(phoneIdx>=0?r[phoneIdx]:''),_time:toTimeBucket(timingIdx>=0?r[timingIdx]:''),_product:productParts.join(' | ')||'Unknown',_wkStore:wkStore};
+    return{...r,_dk:dk,_syncedDk:syncedDk,_rm:rm,_mob:mobStatus(phoneIdx>=0?r[phoneIdx]:''),_time:toTimeBucket(timingIdx>=0?r[timingIdx]:''),_product:productParts.join(' | ')||'Unknown',_wkStore:wkStore,_bill:billStatus(_LS_IDX.billIdx>=0?r[_LS_IDX.billIdx]:'')};
   });
   _LS_DAY_MAP={};
   _LS_ROWS.forEach(r=>{if(r._syncedDk){if(!_LS_DAY_MAP[r._syncedDk])_LS_DAY_MAP[r._syncedDk]=0;_LS_DAY_MAP[r._syncedDk]++;}});
@@ -970,6 +1096,7 @@ function filterLS(f){
     if(reasonIdx>=0&&!_has(f.reason,String(r[reasonIdx]||'')))return false;
     if(custIdx>=0&&!_has(f.custType,String(r[custIdx]||'')))return false;
     if(purposeIdx>=0&&!_has(f.purpose,String(r[purposeIdx]||'')))return false;
+    if(_LS_IDX.billIdx>=0&&!_has(f.billType,r._bill||'(not captured)'))return false;
     return true;
   });
 }
@@ -992,6 +1119,7 @@ function filterLSTab(f){
     if(reasonIdx>=0&&!_has(f.reason,String(r[reasonIdx]||'')))return false;
     if(custIdx>=0&&!_has(f.custType,String(r[custIdx]||'')))return false;
     if(purposeIdx>=0&&!_has(f.purpose,String(r[purposeIdx]||'')))return false;
+    if(_LS_IDX.billIdx>=0&&!_has(f.billType,r._bill||'(not captured)'))return false;
     return true;
   });
 }
@@ -1101,6 +1229,12 @@ function buildFilterBar(){
   const custTypes=custIdx>=0?[...new Set(_LS_ROWS.map(r=>String(r[custIdx]||'')).filter(Boolean))].sort():[];
   const purposeIdx=_LS_IDX.purposeIdx;
   const purposes=purposeIdx>=0?[...new Set(_LS_ROWS.map(r=>String(r[purposeIdx]||'')).filter(Boolean))].sort():[];
+  // Bill Type exists from Aug 2026 only. Rows from earlier months are offered as
+  // "(not captured)" so the filter can isolate them instead of hiding them.
+  const billTypes=_LS_IDX.billIdx>=0
+    ?['Billed','Non Billed'].filter(v=>_LS_ROWS.some(r=>r._bill===v))
+      .concat(_LS_ROWS.some(r=>!r._bill)?['(not captured)']:[])
+    :[];
   const lastWkDay=_WK.days.length?_WK.days[_WK.days.length-1]:null;
   const totalLSSynced=Object.values(_LS_DAY_MAP).reduce((s,v)=>s+v,0);
   const totalLSAll=_LS_ROWS.length;
@@ -1126,6 +1260,7 @@ function buildFilterBar(){
       ${_msHtml('reason','Reason',reasons)}
       ${custTypes.length?_msHtml('custType','Customer',custTypes):''}
       ${purposes.length?_msHtml('purpose','Purpose',purposes):''}
+      ${billTypes.length?_msHtml('billType','Bill type',billTypes):''}
       <div style="width:1px;height:20px;background:var(--border);flex-shrink:0;"></div>
       <label style="margin-right:4px;">View:</label>
       <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0;">
@@ -1262,6 +1397,7 @@ function renderOverview(){
   });
   const totRMStores=rmArr.reduce((s,[,v])=>s+v.stores.length,0);
   const totRMZero=rmArr.reduce((s,[,v])=>s+v.zeroStores,0);
+  const ovBill=getBillCounts(filtLS);
 
   document.getElementById('ov').innerHTML=`
     <div class="metrics">
@@ -1269,7 +1405,19 @@ function renderOverview(){
       <div class="metric green"><div class="lbl">Total bills</div><div class="val">${fi(totalB)}</div><div class="sub">${avgConv}% conversion</div></div>
       <div class="metric red"><div class="lbl">Non-buyers</div><div class="val">${fi(totalNB)}</div><div class="sub">walkins − bills</div></div>
       <div class="metric amber"><div class="lbl">Loss captured</div><div class="val">${fi(totalLS)}</div><div class="sub">${lsCov}% of non-buyers</div></div>
+      ${ovBill.captured?`
+      <div class="metric red"><div class="lbl">🚫 Non-billed loss</div><div class="val">${fi(ovBill.nonBilled)}</div><div class="sub">${pct(ovBill.nonBilled,ovBill.captured)}% of bill-typed loss</div></div>
+      <div class="metric green"><div class="lbl">🧾 Billed loss</div><div class="val">${fi(ovBill.billed)}</div><div class="sub">${pct(ovBill.billed,ovBill.captured)}% — bought, still lost an item</div></div>`:''}
     </div>
+    ${ovBill.captured?`<div class="card"><div class="card-title">🧾 Billed vs Non-billed loss — by market</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:.6rem;">Non-billed = customer left with nothing. Billed = customer bought, but part of what they asked for was still lost — that is recoverable revenue on an existing ticket.${ovBill.unknown?` ${fi(ovBill.unknown)} row(s) in this selection predate the Bill Type column and are excluded.`:''}</div>
+      ${sortableTbl(['Market','Loss captured','🚫 Non-billed','🧾 Billed','Billed%'],
+        mktArr.map(([mkt])=>{
+          const b=getBillCounts(filtLS.filter(r=>r._wkStore&&r._wkStore.market===mkt));
+          return{cells:[mkt,fi(b.captured),fi(b.nonBilled),fi(b.billed),`<span class="badge ${b.captured&&pct(b.billed,b.captured)>=25?'badge-amber':'badge-green'}">${pct(b.billed,b.captured)}%</span>`]};
+        }).filter(r=>r.cells[1]!=='0'),
+        ['Total',fi(ovBill.captured),fi(ovBill.nonBilled),fi(ovBill.billed),`<span class="badge badge-blue">${pct(ovBill.billed,ovBill.captured)}%</span>`])}
+    </div>`:''}
     <div class="card"><div class="card-title">RM summary — click RM for store-level detail (incl. zero-walkin stores)</div>
       ${sortableTbl(['RM','Total stores','Active','🔴 Zero walkins','Walkins','Bills','Non-buyers','Conv%','Loss captured','Coverage%'],rmTblRows,['Total',fi(totRMStores),fi(totRMStores-totRMZero),totRMZero>0?`<span class="badge badge-red">${totRMZero}</span>`:'0',fi(totalW),fi(totalB),fi(totalNB),`<span class="badge ${bc(avgConv)}">${avgConv}%</span>`,fi(totalLS),`<span class="badge ${bc(lsCov)}">${lsCov}%</span>`])}
     </div>
@@ -1312,6 +1460,30 @@ function renderLoss(){
   const mkFtr=()=>['Total',fi(total),...(qtyIdx>=0?[fi(totalQty)]:[]),...(valIdx>=0?[`₹${fs(totalVal)}`]:[]),'100%',''];
   const mkRows=(grp,alertFn,clkFn)=>grp.map(([k,v])=>{const sh=pct(v.c,total);return{cells:[clkFn?`<span class="clickable" onclick="${clkFn(k)}">${k}</span>`:k,fi(v.c),...(qtyIdx>=0?[fi(v.q)]:[]),...(valIdx>=0?[`₹${fs(v.v)}`]:[]),`${sh}%`,alertFn(sh)]};});
 
+  // ── Billed / Non-billed bifurcation (Bill Type column, Aug 2026+) ──
+  const bill=getBillCounts(rows);
+  // Groups the bill-typed rows by any dimension and returns table rows sorted by
+  // non-billed count desc — that is the queue an RM should work through.
+  function billSplit(getKey,limit,clkFn){
+    const m={};
+    rows.forEach(r=>{
+      if(!r._bill)return;
+      const k=String(getKey(r)||'Unknown');
+      if(!m[k])m[k]={b:0,nb:0};
+      if(r._bill==='Billed')m[k].b++;else m[k].nb++;
+    });
+    let arr=Object.entries(m).sort((a,b)=>(b[1].nb+b[1].b)-(a[1].nb+a[1].b));
+    if(limit)arr=arr.slice(0,limit);
+    return arr.map(([k,v])=>{
+      const t=v.b+v.nb,bp=pct(v.b,t);
+      return{cells:[
+        clkFn?`<span class="clickable" onclick="${clkFn(k)}">${k}</span>`:k,
+        fi(v.nb),fi(v.b),fi(t),
+        `<span class="badge ${bp>=25?'badge-amber':'badge-green'}">${bp}%</span>`
+      ]};
+    });
+  }
+
   document.getElementById('ls').innerHTML=`
     <div style="background:linear-gradient(135deg,#fff5f5 0%,#fff 100%);border:1px solid #fdeaea;border-left:4px solid var(--red);border-radius:10px;padding:14px 18px;margin-bottom:1.25rem;">
       <div style="font-size:18px;font-weight:600;color:var(--text);margin-bottom:2px;">📊 Loss of Sale — Patterns & Insights</div>
@@ -1322,7 +1494,31 @@ function renderLoss(){
       ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Total qty lost</div><div class="val">${fi(totalQty)}</div><div class="sub">units</div></div>`:''}
       ${valIdx>=0?`<div class="metric amber"><div class="lbl">Total loss value</div><div class="val">₹${fs(totalVal)}</div></div>`:''}
       <div class="metric"><div class="lbl">Stores reporting</div><div class="val">${sGrp.length}</div></div>
+      ${bill.captured?`
+      <div class="metric red"><div class="lbl">🚫 Non-billed</div><div class="val">${fi(bill.nonBilled)}</div><div class="sub">${pct(bill.nonBilled,bill.captured)}% — left with nothing</div></div>
+      <div class="metric green"><div class="lbl">🧾 Billed</div><div class="val">${fi(bill.billed)}</div><div class="sub">${pct(bill.billed,bill.captured)}% — bought, item still lost</div></div>`:''}
     </div>
+    ${bill.captured?`<div class="card"><div class="card-title">🧾 Billed vs Non-billed bifurcation</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:.75rem;">
+        <strong>Non-billed</strong> losses are conversion failures — the customer walked out empty-handed.
+        <strong>Billed</strong> losses sit on a ticket that already converted, so they are basket-size losses and usually the cheaper win.
+        ${bill.unknown?`<br><span style="color:var(--amber);">⚠️ ${fi(bill.unknown)} of ${fi(total)} rows in this selection have no Bill Type (months before Aug 2026) and are excluded from the splits below.</span>`:''}
+      </div>
+      <div class="two-col">
+        <div>
+          <div class="section-lbl">By reason</div>
+          ${sortableTbl(['Reason','🚫 Non-billed','🧾 Billed','Total','Billed%'],billSplit(r=>reasonIdx>=0?r[reasonIdx]:'Unknown'),null)}
+        </div>
+        <div>
+          <div class="section-lbl">By category</div>
+          ${sortableTbl(['Category','🚫 Non-billed','🧾 Billed','Total','Billed%'],billSplit(r=>catIdx>=0?r[catIdx]:'Unknown'),null)}
+        </div>
+      </div>
+      <div class="section-lbl" style="margin-top:1rem;">By store — highest non-billed loss first (top 25)</div>
+      ${sortableTbl(['Store','🚫 Non-billed','🧾 Billed','Total','Billed%'],billSplit(r=>storeIdx>=0?r[storeIdx]:'Unknown',25,k=>`showStoreModal('${String(k).replace(/'/g,"\\\\'")}')`),null)}
+      <div class="section-lbl" style="margin-top:1rem;">By RM</div>
+      ${sortableTbl(['RM','🚫 Non-billed','🧾 Billed','Total','Billed%'],billSplit(r=>r._rm||'Unknown'),null)}
+    </div>`:''}
     <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.75rem;">Insights & actionables</div>
     <div class="insights" style="margin-bottom:1.25rem;">
       <div class="insight red"><div class="i-label">🔴 Top loss reason</div><div class="i-val">${topR?pct(topR[1].c,total):0}%</div><div class="i-title">${topR?topR[0]:'—'}</div><div class="i-body">Train staff immediately.</div></div>
@@ -4762,7 +4958,7 @@ function renderAudit(){
     .slice(0,30);
   const narrativeBlocks=narrativeStores.map(([store,rows])=>{
     const phrases=_phrasesForRows(rows);
-    const wkS=wk.stores.find(s=>s.outlet===store);
+    const wkS=_WK.stores.find(s=>s.outlet===store);
     const meta=wkS?`${wkS.market||'—'} · RM: ${wkS.rm||'—'}`:'—';
     if(!phrases.length){
       return `<div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--muted);border-radius:10px;padding:12px 16px;margin-bottom:.6rem;">
@@ -6177,8 +6373,9 @@ window.showLSDRMModal=function(rm){
   const{storeIdx,reasonIdx,catIdx,qtyIdx,valIdx}=_LS_IDX;
   const total=rows.length;
   const m={};
-  rows.forEach(r=>{const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';if(!m[k])m[k]={c:0,reasons:{},cats:{}};m[k].c++;const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;const cat=catIdx>=0?String(r[catIdx]||''):'';if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;});
+  rows.forEach(r=>{const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';if(!m[k])m[k]={c:0,b:0,nb:0,reasons:{},cats:{}};m[k].c++;if(r._bill==='Billed')m[k].b++;else if(r._bill==='Non Billed')m[k].nb++;const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;const cat=catIdx>=0?String(r[catIdx]||''):'';if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;});
   const sGrp=Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
+  const showBill=hasBillData(rows);
   const rmStores=_WK.stores.filter(s=>s.rm===rm);
   const wkDayMap=buildWkDayMap(filterStores(rmStores,f),f);
   const storeRows=sGrp.map(([k,v])=>{
@@ -6187,7 +6384,7 @@ window.showLSDRMModal=function(rm){
     const wkStore=(()=>{for(const kk of storeKeys(k))if(_WK_STORE_BY_KEY[kk])return _WK_STORE_BY_KEY[kk];return null;})();
     const wkDays=wkStore?(daysInRange(wkStore.days,f)):[];
     const stW=wkDays.reduce((s,d)=>s+d.w,0),stB=wkDays.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
-    return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,wkStore?wkStore.market:'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
+    return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,wkStore?wkStore.market:'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),...(showBill?[fi(v.nb),fi(v.b)]:[]),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
   });
   openModal(`RM: ${rm} — store detail`,`${sGrp.length} stores · ${fi(total)} loss entries`,`
     <div class="metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem;">
@@ -6196,7 +6393,7 @@ window.showLSDRMModal=function(rm){
       ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Qty lost</div><div class="val">${fi(rows.reduce((s,r)=>s+n(r[qtyIdx]),0))}</div></div>`:''}
     </div>
     <div class="section-lbl">Store-wise detail</div>
-    ${sortableTbl(['Store','Market','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],storeRows,null)}
+    ${sortableTbl(['Store','Market','Walkins','Bills','Non-buyers','Conv%','Loss',...(showBill?['🚫 Non-billed','🧾 Billed']:[]),'Coverage%','Top reason','Top category'],storeRows,null)}
     <div class="section-lbl" style="margin-top:1.25rem;">Day-wise loss captured</div>
     ${dayWiseLSTable(rows,wkDayMap)}`);
 };
@@ -6207,8 +6404,9 @@ window.showLSDMktModal=function(market){
   const{storeIdx,reasonIdx,catIdx,qtyIdx}=_LS_IDX;
   const total=rows.length;
   const m={};
-  rows.forEach(r=>{const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';if(!m[k])m[k]={c:0,reasons:{},cats:{}};m[k].c++;const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;const cat=catIdx>=0?String(r[catIdx]||''):'';if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;});
+  rows.forEach(r=>{const k=storeIdx>=0?String(r[storeIdx]||'Unknown'):'Unknown';if(!m[k])m[k]={c:0,b:0,nb:0,reasons:{},cats:{}};m[k].c++;if(r._bill==='Billed')m[k].b++;else if(r._bill==='Non Billed')m[k].nb++;const reason=reasonIdx>=0?String(r[reasonIdx]||''):'';if(reason)m[k].reasons[reason]=(m[k].reasons[reason]||0)+1;const cat=catIdx>=0?String(r[catIdx]||''):'';if(cat)m[k].cats[cat]=(m[k].cats[cat]||0)+1;});
   const sGrp=Object.entries(m).sort((a,b)=>b[1].c-a[1].c);
+  const showBill=hasBillData(rows);
   const mktStores=filterStores(_WK.stores,{...f,market});
   const wkDayMap=buildWkDayMap(mktStores,f);
   const storeRows=sGrp.map(([k,v])=>{
@@ -6217,7 +6415,7 @@ window.showLSDMktModal=function(market){
     const wkStore=(()=>{for(const kk of storeKeys(k))if(_WK_STORE_BY_KEY[kk])return _WK_STORE_BY_KEY[kk];return null;})();
     const wkDays=wkStore?(daysInRange(wkStore.days,f)):[];
     const stW=wkDays.reduce((s,d)=>s+d.w,0),stB=wkDays.reduce((s,d)=>s+d.b,0),stNB=stW-stB;
-    return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,rows.find(r=>String(r[storeIdx]||'')===k)?._rm||'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
+    return{cells:[`<span class="clickable" onclick="showStoreModal('${k.replace(/'/g,"\\'")}')">${k}</span>`,rows.find(r=>String(r[storeIdx]||'')===k)?._rm||'—',fi(stW),fi(stB),fi(stNB),`<span class="badge ${bc(pct(stB,stW))}">${pct(stB,stW)}%</span>`,fi(v.c),...(showBill?[fi(v.nb),fi(v.b)]:[]),`${pct(v.c,stNB||1)}%`,topR?topR[0]:'—',topC?topC[0]:'—']};
   });
   openModal(`Market: ${market} — store detail`,`${sGrp.length} stores · ${fi(total)} loss entries`,`
     <div class="metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem;">
@@ -6226,7 +6424,7 @@ window.showLSDMktModal=function(market){
       ${qtyIdx>=0?`<div class="metric red"><div class="lbl">Qty lost</div><div class="val">${fi(rows.reduce((s,r)=>s+n(r[qtyIdx]),0))}</div></div>`:''}
     </div>
     <div class="section-lbl">Store-wise detail</div>
-    ${sortableTbl(['Store','RM','Walkins','Bills','Non-buyers','Conv%','Loss','Coverage%','Top reason','Top category'],storeRows,null)}
+    ${sortableTbl(['Store','RM','Walkins','Bills','Non-buyers','Conv%','Loss',...(showBill?['🚫 Non-billed','🧾 Billed']:[]),'Coverage%','Top reason','Top category'],storeRows,null)}
     <div class="section-lbl" style="margin-top:1.25rem;">Day-wise loss captured</div>
     ${dayWiseLSTable(rows,wkDayMap)}`);
 };
@@ -6250,6 +6448,7 @@ window.showStoreModal=function(storeName){
   const byCust=grpS(r=>custIdx>=0?r[custIdx]:'Unknown').filter(([k])=>k&&k!=='Unknown');
   const byPurpose=purposeIdx>=0?grpS(r=>String(r[purposeIdx]||'').trim()||'(blank)').filter(([k])=>k&&k!=='Unknown'):[];
   const validM=rows.filter(r=>r._mob==='valid').length,invL=rows.filter(r=>r._mob==='invalid_length').length,invJ=rows.filter(r=>r._mob==='invalid_junk').length,missM=rows.filter(r=>r._mob==='missing').length;
+  const stBill=getBillCounts(rows);
   const mini=(arr,lbl)=>arr.length?`<table style="width:100%;border-collapse:collapse;">
     <thead><tr><th style="${ths}">${lbl}</th><th style="${ths}">Count</th><th style="${ths}">%</th></tr></thead>
     <tbody>${arr.map(([k,v])=>`<tr><td style="${mts}">${k}</td><td style="${mts}font-weight:600">${fi(v.c)}</td><td style="${mts}">${pct(v.c,total)}%</td></tr>`).join('')}</tbody>
@@ -6262,6 +6461,14 @@ window.showStoreModal=function(storeName){
       <div class="metric red"><div class="lbl">Non-buyers</div><div class="val">${fi(stNB)}</div></div>
       <div class="metric amber"><div class="lbl">Loss captured</div><div class="val">${fi(total)}</div><div class="sub">${pct(total,stNB)}% coverage</div></div>
     </div>
+    ${stBill.captured?`<div style="background:#f2f7ff;border-left:4px solid var(--blue);border-radius:8px;padding:.85rem 1rem;margin-bottom:1.25rem;">
+      <div style="font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;margin-bottom:.5rem;">🧾 Billed vs non-billed loss</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;">
+        <div><strong style="color:var(--red)">${fi(stBill.nonBilled)}</strong> non-billed (${pct(stBill.nonBilled,stBill.captured)}%) — left empty-handed</div>
+        <div><strong style="color:var(--green)">${fi(stBill.billed)}</strong> billed (${pct(stBill.billed,stBill.captured)}%) — bought, item still lost</div>
+        <div>${stBill.unknown?`<span style="color:var(--muted)">${fi(stBill.unknown)} rows predate Bill Type</span>`:''}</div>
+      </div>
+    </div>`:''}
     <div style="background:#fff5f5;border-left:4px solid var(--red);border-radius:8px;padding:.85rem 1rem;margin-bottom:1.25rem;">
       <div style="font-size:11px;font-weight:600;color:var(--red);text-transform:uppercase;margin-bottom:.5rem;">📱 Phone number quality</div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:12px;">
@@ -6317,8 +6524,8 @@ async function loadMonth(key){
   if(!cfg)return;
   const pill=addPill(`${cfg.label} — loading...`,'pill-wait');
   try{
-    // Load walkins
-    const wkRaw=await fetchTab(cfg.wkTab);
+    // Load walkins. The tab is optional — a month whose Loss tab landed first still loads.
+    const wkRaw=cfg.wkTab?await fetchTab(cfg.wkTab):{headers:[],rows:[]};
     if(wkRaw.error){throw new Error(wkRaw.error);}
     const wkRowCount=(wkRaw.rows||[]).length;
     const wkHdrCount=(wkRaw.headers||[]).length;
@@ -6326,9 +6533,16 @@ async function loadMonth(key){
     // Load loss of sale
     const lsRaw=await fetchTab(cfg.lsTab);
     if(lsRaw.error){throw new Error(lsRaw.error);}
-    _MONTH_DATA[key]={wk,lsHeaders:lsRaw.headers||[],lsRows:lsRaw.rows||[]};
-    const lsRowCount=(lsRaw.rows||[]).length;
-    if(wkRowCount===0&&wkHdrCount===0){
+    // Rewrite this month's rows into the canonical layout using ITS OWN header row, so months
+    // with different column sets can safely be concatenated in mergeMonths().
+    const canon=canonicalizeLossRows(lsRaw.headers||[],lsRaw.rows||[],cfg.lsTab);
+    _MONTH_DATA[key]={wk,lsHeaders:LS_CANON,lsRows:canon.rows,lsShifted:canon.shifted,wkMissing:!cfg.wkTab};
+    const lsRowCount=canon.rows.length;
+    if(!cfg.wkTab){
+      // No Walkins tab for this month yet — loss data still loads, walkin metrics stay pending.
+      pill.className='pill pill-info';
+      pill.textContent=`${cfg.label} · ⏳ no Walkins tab yet · ${fi(lsRowCount)} LS rows`;
+    }else if(wkRowCount===0&&wkHdrCount===0){
       // Tab exists but is empty — neutral info pill, NOT an error. Still keep LS data.
       pill.className='pill pill-info';
       pill.textContent=`${cfg.label} · Walkins tab empty · ${fi(lsRowCount)} LS rows`;
@@ -6373,16 +6587,25 @@ function mergeMonths(keys){
       dayMap[day.dk].w+=day.w;
       dayMap[day.dk].b+=day.b;
     });
-    // Merge LS rows
+    // Merge LS rows. Every month was rewritten to LS_CANON at load time, so rows from
+    // different sheet layouts line up and one header set is valid for all of them.
     allLSRows.push(...(d.lsRows||[]));
-    // Pick headers with the MOST NAMED columns (non-empty strings). If tied, pick the
-    // longer array. This handles the case where APR's last column has an empty header
-    // but MAY has "Purpose" there — without this, the merge would silently drop the
-    // Purpose column name.
-    const namedNew=(d.lsHeaders||[]).filter(h=>String(h||'').trim()).length;
-    const namedCur=(lsHeaders||[]).filter(h=>String(h||'').trim()).length;
-    if(namedNew>namedCur||(namedNew===namedCur&&(d.lsHeaders||[]).length>(lsHeaders||[]).length))lsHeaders=d.lsHeaders;
   });
+  lsHeaders=LS_CANON;
+
+  // If none of the selected months has a Walkins tab (e.g. viewing Aug alone before
+  // "Walkins Aug" exists), carry the roster forward from the most recent month that does,
+  // with zero walkin days. Keeps store → RM / market / cluster mapping alive so the loss
+  // data is still sliceable; walkin-derived numbers simply stay at zero.
+  if(!Object.keys(storeMap).length){
+    const donor=[..._activeMonths].reverse().find(k=>_MONTH_DATA[k]&&(_MONTH_DATA[k].wk.stores||[]).length);
+    if(donor){
+      console.warn('[mergeMonths] no walkin roster in selection — carrying roster forward from',donor);
+      (_MONTH_DATA[donor].wk.stores||[]).forEach(s=>{
+        storeMap[s.outletNorm]={...s,days:[],totalW:0,totalB:0};
+      });
+    }
+  }
 
   const stores=Object.values(storeMap);
   const days=Object.values(dayMap).sort((a,b)=>a.dk.localeCompare(b.dk));
